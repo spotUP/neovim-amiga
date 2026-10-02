@@ -253,6 +253,24 @@ static void uv__process_close_stream(uv_stdio_container_t* container) {
 }
 
 
+#if defined(__amigaos__) && !defined(UV__SPAWN_VFORK)
+# define UV__SPAWN_VFORK 1
+#endif
+
+#if defined(UV__SPAWN_VFORK)
+/* AmigaOS has no fork(): children start with ixemul's vfork(), whose child
+ * shares our data and heap (not our stack, which it gets a copy of) and
+ * holds us until it calls execve() or _exit(). So the child hands its exec
+ * error back through this shared variable instead of the close-on-exec pipe
+ * the fork() path needs: when vfork() returns here, the child has either
+ * exec'd (0) or failed and exited (the error). */
+static volatile int uv__vfork_child_err;
+
+static void uv__write_int(int fd, int val) {
+  (void) fd;
+  uv__vfork_child_err = val;
+}
+#else
 static void uv__write_int(int fd, int val) {
   ssize_t n;
 
@@ -265,6 +283,7 @@ static void uv__write_int(int fd, int val) {
 
   assert(n == sizeof(val));
 }
+#endif
 
 
 #if !(defined(__APPLE__) && (TARGET_OS_TV || TARGET_OS_WATCH))
@@ -486,6 +505,41 @@ int uv_spawn(uv_loop_t* loop,
    * marked close-on-exec. Then, after the call to `fork()`,
    * the parent polls the read end until it EOFs or errors with EPIPE.
    */
+#if defined(UV__SPAWN_VFORK)
+  uv_signal_start(&loop->child_watcher, uv__chld, SIGCHLD);
+
+  uv_rwlock_wrlock(&loop->cloexec_lock);
+  {
+    /* the child sets environ to options->env before its exec, in memory
+     * it shares with us: put ours back once it has let us go */
+    char** saved_environ = environ;
+
+    uv__vfork_child_err = 0;
+    pid = vfork();
+    if (pid == 0) {
+      uv__process_child_init(options, stdio_count, pipes, -1);
+      abort();
+    }
+    environ = saved_environ;
+  }
+
+  if (pid == -1) {
+    err = UV__ERR(errno);
+    uv_rwlock_wrunlock(&loop->cloexec_lock);
+    goto error;
+  }
+
+  uv_rwlock_wrunlock(&loop->cloexec_lock);
+
+  process->status = 0;
+  exec_errorno = uv__vfork_child_err;
+  if (exec_errorno != 0) {
+    do
+      err = waitpid(pid, &status, 0);  /* reap the child that failed */
+    while (err == -1 && errno == EINTR);
+    assert(err == pid);
+  }
+#else
   err = uv__make_pipe(signal_pipe, 0);
   if (err)
     goto error;
@@ -535,6 +589,7 @@ int uv_spawn(uv_loop_t* loop,
     abort();
 
   uv__close_nocheckstdio(signal_pipe[0]);
+#endif /* UV__SPAWN_VFORK */
 
   for (i = 0; i < options->stdio_count; i++) {
     err = uv__process_open_stream(options->stdio + i, pipes[i]);

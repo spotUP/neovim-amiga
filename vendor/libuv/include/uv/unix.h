@@ -36,16 +36,36 @@
 #include <termios.h>
 #include <pwd.h>
 
+/* AmigaOS + ixemul: one task per process, no threads; select() is the
+ * only readiness primitive, so the poller is posix-poll.c over poll(). The
+ * host test build sets both macros on its own to run the same code. */
+#if defined(__amigaos__) && defined(__ixemul__)
+# ifndef UV_NO_THREADS
+#  define UV_NO_THREADS 1
+# endif
+# ifndef UV_POSIX_POLL
+#  define UV_POSIX_POLL 1
+# endif
+#endif
+
 #if !defined(__MVS__)
+# if !defined(UV_NO_THREADS)
 #include <semaphore.h>
+# endif
 #include <sys/param.h> /* MAXHOSTNAMELEN on Linux and the BSDs */
 #endif
+#if defined(UV_NO_THREADS)
+# include "uv/nothreads.h"
+#else
 #include <pthread.h>
+#endif
 #include <signal.h>
 
 #include "uv/threadpool.h"
 
-#if defined(__linux__)
+#if defined(UV_POSIX_POLL)
+# include "uv/posix.h"
+#elif defined(__linux__)
 # include "uv/linux.h"
 #elif defined (__MVS__)
 # include "uv/os390.h"
@@ -127,6 +147,7 @@ typedef int uv_os_sock_t;
 typedef int uv_os_fd_t;
 typedef pid_t uv_pid_t;
 
+#if !defined(UV_NO_THREADS)
 #define UV_ONCE_INIT PTHREAD_ONCE_INIT
 
 typedef pthread_once_t uv_once_t;
@@ -136,6 +157,7 @@ typedef pthread_rwlock_t uv_rwlock_t;
 typedef UV_PLATFORM_SEM_T uv_sem_t;
 typedef pthread_cond_t uv_cond_t;
 typedef pthread_key_t uv_key_t;
+#endif
 
 /* Note: guard clauses should match uv_barrier_init's in src/unix/thread.c. */
 #if defined(_AIX) || \

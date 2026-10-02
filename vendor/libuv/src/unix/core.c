@@ -1325,8 +1325,12 @@ int uv_os_unsetenv(const char* name) {
   if (name == NULL)
     return UV_EINVAL;
 
+#if defined(__amigaos__)
+  unsetenv(name);  /* ixemul's is the 4.3BSD one: it returns void */
+#else
   if (unsetenv(name) != 0)
     return UV__ERR(errno);
+#endif
 
   return 0;
 }

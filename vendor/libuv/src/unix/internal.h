@@ -271,7 +271,7 @@ FILE* uv__open_file(const char* path);
 int uv__getpwuid_r(uv_passwd_t* pwd);
 
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(UV_POSIX_POLL)
 int uv___stream_fd(const uv_stream_t* handle);
 #define uv__stream_fd(handle) (uv___stream_fd((const uv_stream_t*) (handle)))
 #else

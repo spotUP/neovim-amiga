@@ -22,6 +22,14 @@
 #include <atomic.h>
 #endif
 
+#if defined(__amigaos__)
+/* amiga-os.c: compare-and-swap with interrupts off (Disable/Enable). The
+ * 68020's CAS is a read-modify-write cycle, which the Amiga's chip bus does
+ * not carry, and with one thread the only other party is a signal (an exec
+ * task exception), which cannot run while interrupts are off. */
+int uv__amiga_cmpxchgi(int* ptr, int oldval, int newval);
+#endif
+
 UV_UNUSED(static int cmpxchgi(int* ptr, int oldval, int newval));
 UV_UNUSED(static void cpu_relax(void));
 
@@ -47,6 +55,8 @@ UV_UNUSED(static int cmpxchgi(int* ptr, int oldval, int newval)) {
     return oldval;
   else
     return op4;
+#elif defined(__amigaos__)
+  return uv__amiga_cmpxchgi(ptr, oldval, newval);
 #elif defined(__SUNPRO_C) || defined(__SUNPRO_CC)
   return atomic_cas_uint((uint_t *)ptr, (uint_t)oldval, (uint_t)newval);
 #else

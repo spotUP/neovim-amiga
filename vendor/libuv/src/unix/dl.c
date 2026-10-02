@@ -22,10 +22,45 @@
 #include "uv.h"
 #include "internal.h"
 
-#include <dlfcn.h>
 #include <errno.h>
 #include <string.h>
 #include <locale.h>
+
+#if defined(__amigaos__)
+/* ixemul.library has no dynamic linker (an AmigaOS shared library is not
+ * an ELF object with symbols): uv_dlopen fails with a message saying so. */
+static const char uv__no_dl[] = "dynamic loading is not supported on AmigaOS";
+
+int uv_dlopen(const char* filename, uv_lib_t* lib) {
+  (void) filename;
+  lib->handle = NULL;
+  lib->errmsg = uv__strdup(uv__no_dl);
+  return -1;
+}
+
+
+void uv_dlclose(uv_lib_t* lib) {
+  uv__free(lib->errmsg);
+  lib->errmsg = NULL;
+  lib->handle = NULL;
+}
+
+
+int uv_dlsym(uv_lib_t* lib, const char* name, void** ptr) {
+  (void) name;
+  *ptr = NULL;
+  uv__free(lib->errmsg);
+  lib->errmsg = uv__strdup(uv__no_dl);
+  return -1;
+}
+
+
+const char* uv_dlerror(const uv_lib_t* lib) {
+  return lib->errmsg ? lib->errmsg : "no error";
+}
+
+#else
+#include <dlfcn.h>
 
 static int uv__dlerror(uv_lib_t* lib);
 
@@ -78,3 +113,5 @@ static int uv__dlerror(uv_lib_t* lib) {
     return 0;
   }
 }
+
+#endif /* __amigaos__ */

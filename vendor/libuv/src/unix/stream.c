@@ -34,8 +34,9 @@
 #include <sys/un.h>
 #include <unistd.h>
 #include <limits.h> /* IOV_MAX */
+#include <time.h> /* nanosleep (darwin.h brought it in before; posix.h does not) */
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(UV_POSIX_POLL)
 # include <sys/event.h>
 # include <sys/time.h>
 # include <sys/select.h>
@@ -112,7 +113,7 @@ void uv__stream_init(uv_loop_t* loop,
       loop->emfile_fd = err;
   }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(UV_POSIX_POLL)
   stream->select = NULL;
 #endif /* defined(__APPLE_) */
 
@@ -121,7 +122,7 @@ void uv__stream_init(uv_loop_t* loop,
 
 
 static void uv__stream_osx_interrupt_select(uv_stream_t* stream) {
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(UV_POSIX_POLL)
   /* Notify select() thread about state change */
   uv__stream_select_t* s;
   int r;
@@ -145,7 +146,7 @@ static void uv__stream_osx_interrupt_select(uv_stream_t* stream) {
 }
 
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(UV_POSIX_POLL)
 static void uv__stream_osx_select(void* arg) {
   uv_stream_t* stream;
   uv__stream_select_t* s;
@@ -1608,7 +1609,7 @@ int uv_is_writable(const uv_stream_t* stream) {
 }
 
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(UV_POSIX_POLL)
 int uv___stream_fd(const uv_stream_t* handle) {
   const uv__stream_select_t* s;
 
@@ -1629,7 +1630,7 @@ void uv__stream_close(uv_stream_t* handle) {
   unsigned int i;
   uv__stream_queued_fds_t* queued_fds;
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(UV_POSIX_POLL)
   /* Terminate select loop first */
   if (handle->select != NULL) {
     uv__stream_select_t* s;

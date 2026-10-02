@@ -150,7 +150,7 @@ int uv_pipe_open(uv_pipe_t* handle, uv_file fd) {
   if (err)
     return err;
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(UV_POSIX_POLL)
   err = uv__stream_try_select((uv_stream_t*) handle, &fd);
   if (err)
     return err;

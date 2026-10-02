@@ -40,7 +40,9 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/uio.h>
+#if !defined(UV_NO_THREADS)
 #include <pthread.h>
+#endif
 #include <unistd.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -408,9 +410,23 @@ static int uv__fs_scandir_filter(UV_CONST_DIRENT* dent) {
 }
 
 
+#if defined(__amigaos__)
+/* ixemul's scandir takes the 4.4BSD prototypes: a non-const filter and a
+ * qsort-style comparator. */
+static int uv__fs_scandir_sort(const void* a, const void* b) {
+  return strcmp((*(UV_CONST_DIRENT* const*) a)->d_name,
+                (*(UV_CONST_DIRENT* const*) b)->d_name);
+}
+
+static int uv__fs_scandir_filter_bsd(struct dirent* dent) {
+  return uv__fs_scandir_filter(dent);
+}
+#define uv__fs_scandir_filter uv__fs_scandir_filter_bsd
+#else
 static int uv__fs_scandir_sort(UV_CONST_DIRENT** a, UV_CONST_DIRENT** b) {
   return strcmp((*a)->d_name, (*b)->d_name);
 }
+#endif
 
 
 static ssize_t uv__fs_scandir(uv_fs_t* req) {
@@ -893,7 +909,7 @@ static ssize_t uv__fs_write(uv_fs_t* req) {
    * data loss. We can't use a per-file descriptor lock, the descriptor may be
    * a dup().
    */
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(UV_NO_THREADS)
   static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
   if (pthread_mutex_lock(&lock))
@@ -935,7 +951,7 @@ static ssize_t uv__fs_write(uv_fs_t* req) {
   }
 
 done:
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(UV_NO_THREADS)
   if (pthread_mutex_unlock(&lock))
     abort();
 #endif
@@ -1119,7 +1135,7 @@ static void uv__to_stat(struct stat* src, uv_stat_t* dst) {
   dst->st_birthtim.tv_nsec = src->st_ctimensec;
   dst->st_flags = 0;
   dst->st_gen = 0;
-#elif !defined(_AIX) && (       \
+#elif !defined(_AIX) && !defined(__amigaos__) && ( \
     defined(__DragonFly__)   || \
     defined(__FreeBSD__)     || \
     defined(__OpenBSD__)     || \
