@@ -2,6 +2,7 @@
  * (compat/posix.c). (Request R1: belong in the ixemul-vtcon SDK.) */
 #ifndef AMIGA_COMPAT_UNISTD_H
 #define AMIGA_COMPAT_UNISTD_H
+#pragma GCC system_header
 #include_next <unistd.h>
 #include <sys/types.h>
 

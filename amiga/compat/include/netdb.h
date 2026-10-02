@@ -4,6 +4,7 @@
  * Values are 4.4BSD/NetBSD's. (Request R1: belongs in libixcompat.) */
 #ifndef AMIGA_COMPAT_NETDB_H
 #define AMIGA_COMPAT_NETDB_H
+#pragma GCC system_header
 
 #include_next <netdb.h>
 #include <sys/types.h>

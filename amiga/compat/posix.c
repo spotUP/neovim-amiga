@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <net/if.h>
 #include <pwd.h>
 #include <stdlib.h>
@@ -216,4 +217,32 @@ if_indextoname(unsigned int index, char *name)
 	(void)name;
 	errno = ENXIO;
 	return NULL;
+}
+
+intmax_t
+imaxabs(intmax_t n)
+{
+	return n < 0 ? -n : n;
+}
+
+imaxdiv_t
+imaxdiv(intmax_t n, intmax_t d)
+{
+	imaxdiv_t r;
+
+	r.quot = n / d;
+	r.rem = n % d;
+	return r;
+}
+
+intmax_t
+strtoimax(const char *s, char **end, int base)
+{
+	return strtoq(s, end, base);
+}
+
+uintmax_t
+strtoumax(const char *s, char **end, int base)
+{
+	return strtouq(s, end, base);
 }

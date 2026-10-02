@@ -5,6 +5,7 @@
  * ixemul-vtcon SDK.) */
 #ifndef AMIGA_COMPAT_NETINET_IN_H
 #define AMIGA_COMPAT_NETINET_IN_H
+#pragma GCC system_header
 
 #include_next <netinet/in.h>
 #include <sys/types.h>
