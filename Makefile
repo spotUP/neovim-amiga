@@ -19,11 +19,13 @@ H       = build/host
 
 .PHONY: all libs host-test clean
 all: libs
-libs: $(B)/libamigacompat.a $(B)/libuv.a
+libs: $(B)/libamigacompat.a $(B)/libuv.a $(B)/liblua.a $(B)/lua51 $(B)/libmsgpackc.a \
+      $(B)/libunibilium.a $(B)/libtermkey.a $(B)/libvterm.a $(B)/libluv.a
 
 # ---- what ixemul 48.2 lacks: IPv6 types, getaddrinfo (ledger R1) ----------
 COMPAT_INC = -Iamiga/compat/include
-COMPAT_OBJS = $(B)/compat/netdb.o $(B)/compat/posix.o $(B)/compat/eprintf.o
+COMPAT_OBJS = $(B)/compat/netdb.o $(B)/compat/posix.o $(B)/compat/eprintf.o \
+              $(B)/compat/math.o
 
 $(B)/compat/%.o: amiga/compat/%.c $(wildcard amiga/compat/include/*.h amiga/compat/include/*/*.h)
 	@mkdir -p $(dir $@)
@@ -100,3 +102,98 @@ UV_TEST_SRCS = $(filter-out $(UV)/test/benchmark-% $(UV)/test/runner-win.c \
 $(H)/uv-run-tests: $(UV_TEST_SRCS) $(H)/libuv.a
 	$(HOSTCC) $(HCFLAGS) -w -include pthread.h -I$(UV)/test -o $@ $(UV_TEST_SRCS) \
 	  $(UV)/test/echo-server.c $(UV)/test/blackhole-server.c $(H)/libuv.a -lpthread
+
+# ---- Lua 5.1.5 (PUC; doubles, so soft float without an FPU) ---------------
+LUA     = vendor/lua/src
+LUA_SRCS = lapi.c lcode.c ldebug.c ldo.c ldump.c lfunc.c lgc.c llex.c lmem.c \
+           lobject.c lopcodes.c lparser.c lstate.c lstring.c ltable.c ltm.c \
+           lundump.c lvm.c lzio.c lauxlib.c lbaselib.c ldblib.c liolib.c \
+           lmathlib.c loslib.c ltablib.c lstrlib.c loadlib.c linit.c
+LUA_OBJS = $(addprefix $(B)/lua/,$(LUA_SRCS:.c=.o))
+LUA_DEFS = -DLUA_USE_POSIX
+
+$(B)/lua/%.o: $(LUA)/%.c $(wildcard $(LUA)/*.h)
+	@mkdir -p $(dir $@)
+	$(AGCC) $(ACFLAGS) $(COMPAT_INC) $(LUA_DEFS) -c -o $@ $<
+
+$(B)/liblua.a: $(LUA_OBJS)
+	rm -f $@
+	$(AAR) rcs $@ $(LUA_OBJS)
+
+# the stand-alone interpreter, to time and test Lua on the Amiga
+$(B)/lua51: $(B)/lua/lua.o $(B)/liblua.a $(B)/libamigacompat.a
+	$(AGCC) $(ALDFLAGS) -o $@ $(B)/lua/lua.o $(B)/liblua.a $(B)/libamigacompat.a -lixcompat
+
+# ---- msgpack-c 3.0.0, the C part -------------------------------------------
+MP      = vendor/msgpack-c
+MP_SRCS = objectc.c unpack.c version.c vrefbuffer.c zone.c
+MP_OBJS = $(addprefix $(B)/msgpack/,$(MP_SRCS:.c=.o))
+
+$(B)/msgpack/%.o: $(MP)/src/%.c
+	@mkdir -p $(dir $@)
+	$(AGCC) $(ACFLAGS) $(COMPAT_INC) -I$(MP)/include -c -o $@ $<
+
+$(B)/libmsgpackc.a: $(MP_OBJS)
+	rm -f $@
+	$(AAR) rcs $@ $(MP_OBJS)
+
+# ---- unibilium 92d929f ------------------------------------------------------
+# terminfo search path on the Amiga: $TERMINFO, then UP-Term's kit
+# (ENV:TERMINFO is set by its Install), then the GG tree
+UB      = vendor/unibilium
+UB_SRCS = unibilium.c uninames.c uniutil.c
+UB_OBJS = $(addprefix $(B)/unibilium/,$(UB_SRCS:.c=.o))
+UB_DEFS = -DTERMINFO_DIRS='"/usr/share/terminfo:/usr/lib/terminfo:/gg/share/terminfo"'
+
+$(B)/unibilium/%.o: $(UB)/%.c $(UB)/unibilium.h
+	@mkdir -p $(dir $@)
+	$(AGCC) $(ACFLAGS) $(COMPAT_INC) $(UB_DEFS) -I$(UB) -c -o $@ $<
+
+$(B)/libunibilium.a: $(UB_OBJS)
+	rm -f $@
+	$(AAR) rcs $@ $(UB_OBJS)
+
+# ---- libtermkey 0.21.1 (on unibilium, as Neovim builds it) ----------------
+TK      = vendor/libtermkey
+TK_SRCS = termkey.c driver-csi.c driver-ti.c
+TK_OBJS = $(addprefix $(B)/termkey/,$(TK_SRCS:.c=.o))
+
+$(B)/termkey/%.o: $(TK)/%.c $(TK)/termkey.h $(TK)/termkey-internal.h
+	@mkdir -p $(dir $@)
+	$(AGCC) $(ACFLAGS) $(COMPAT_INC) -DHAVE_UNIBILIUM -I$(UB) -I$(TK) -c -o $@ $<
+
+$(B)/libtermkey.a: $(TK_OBJS)
+	rm -f $@
+	$(AAR) rcs $@ $(TK_OBJS)
+
+# ---- libvterm 7c72294 (Neovim's fork) --------------------------------------
+VT      = vendor/libvterm
+VT_SRCS = encoding.c keyboard.c mouse.c parser.c pen.c screen.c state.c \
+          unicode.c vterm.c
+VT_OBJS = $(addprefix $(B)/vterm/,$(VT_SRCS:.c=.o))
+VT_INCS = $(B)/vterm-gen/encoding/DECdrawing.inc $(B)/vterm-gen/encoding/uk.inc
+
+$(B)/vterm-gen/encoding/%.inc: $(VT)/src/encoding/%.tbl
+	@mkdir -p $(dir $@)
+	perl -C $(VT)/tbl2inc_c.pl $< > $@
+
+$(B)/vterm/%.o: $(VT)/src/%.c $(VT_INCS)
+	@mkdir -p $(dir $@)
+	$(AGCC) $(ACFLAGS) $(COMPAT_INC) -std=gnu99 -I$(VT)/include -I$(VT)/src \
+	  -I$(B)/vterm-gen -c -o $@ $<
+
+$(B)/libvterm.a: $(VT_OBJS)
+	rm -f $@
+	$(AAR) rcs $@ $(VT_OBJS)
+
+# ---- luv 1.30.0-0 (libuv for Lua; vim.loop) --------------------------------
+LUV     = vendor/luv
+$(B)/luv/luv.o: $(wildcard $(LUV)/src/*.c $(LUV)/src/*.h) $(B)/libuv.a
+	@mkdir -p $(dir $@)
+	$(AGCC) $(ACFLAGS) $(COMPAT_INC) -I$(UV)/include -I$(LUA) \
+	  -Ivendor/lua-compat-5.3 -Ivendor/lua-compat-5.3/c-api \
+	  -DLUA_COMPAT_APIINTCASTS -c -o $@ $(LUV)/src/luv.c
+
+$(B)/libluv.a: $(B)/luv/luv.o
+	rm -f $@
+	$(AAR) rcs $@ $(B)/luv/luv.o

@@ -5,7 +5,8 @@
 
 #include <stdarg.h>
 
-#if defined(__GNUC__)
+/* AmigaOS hunk objects have no symbol visibility */
+#if defined(__GNUC__) && !defined(__amigaos__)
 # define INTERNAL __attribute__((visibility("internal")))
 #else
 # define INTERNAL
