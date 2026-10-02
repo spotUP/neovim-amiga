@@ -1,0 +1,57 @@
+sudo: false
+language: c
+compiler: clang-3.8
+
+env:
+  global:
+    - VERBOSE=1
+  matrix:
+    - CONFIG=asan
+    - CONFIG=msan
+    - CONFIG=ubsan
+    - CONFIG=debug
+    - CONFIG=release CFLAGS=-Werror
+    - CONFIG=amalgamation CFLAGS=-Werror
+    - CONFIG=release ANSI=1 CFLAGS=-Werror
+
+addons:
+  apt:
+    packages:
+      - clang-3.8
+    sources:
+      - llvm-toolchain-precise-3.8
+      - ubuntu-toolchain-r-test
+
+os:
+  - linux
+
+matrix:
+  include:
+    - os: linux
+      compiler: gcc
+      env: CONFIG=release CFLAGS='-m32 -Werror' LDFLAGS=-m32
+      addons:
+        apt:
+          packages:
+            - gcc-multilib
+    - os: linux
+      compiler: gcc
+      env:
+        - CONFIG=armeb CFLAGS='-DNDEBUG -g --coverage -Werror' LDFLAGS=--coverage
+      before_install:
+        - pip install --user cpp-coveralls 'requests[security]'
+      after_success:
+        - coveralls -b . --gcov $(pwd)/.deps/usr/bin/armeb-linux-gnueabihf-gcov --gcov-options '\-lp'
+    - os: osx
+      env: CONFIG=release
+      compiler: gcc
+
+script:
+  make config=${CONFIG} test
+
+cache:
+  directories:
+    - .deps/usr
+
+after_failure:
+  cat asan.* ubsan.* msan.* || true
