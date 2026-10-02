@@ -12,7 +12,12 @@
 #include <sys/ioctl.h>
 
 // forkpty is not in POSIX, so headers are platform-specific
-#if defined(__FreeBSD__) || defined(__DragonFly__)
+#if defined(__amigaos__)
+// AmigaOS (ixemul): no forkpty and no fork. BSD ptys (/dev/ptyXY,
+// /dev/ttyXY) on UP-Term's PTY: handler, and vfork (see amiga_pty_spawn).
+# include <fcntl.h>
+# include <unistd.h>
+#elif defined(__FreeBSD__) || defined(__DragonFly__)
 # include <libutil.h>
 #elif defined(__OpenBSD__) || defined(__NetBSD__) || defined(__APPLE__)
 # include <util.h>
@@ -66,6 +71,14 @@ int pty_process_spawn(PtyProcess *ptyproc)
   ptyproc->winsize = (struct winsize){ ptyproc->height, ptyproc->width, 0, 0 };
   uv_disable_stdio_inheritance();
   int master;
+#ifdef __amigaos__
+  int pid = amiga_pty_spawn(ptyproc, &master);
+  if (pid < 0) {
+    status = -errno;
+    ELOG("pty spawn failed: %s", strerror(errno));
+    return status;
+  }
+#else
   int pid = forkpty(&master, NULL, &termios_default, &ptyproc->winsize);
 
   if (pid < 0) {
@@ -75,6 +88,7 @@ int pty_process_spawn(PtyProcess *ptyproc)
   } else if (pid == 0) {
     init_child(ptyproc);  // never returns
   }
+#endif
 
   // make sure the master file descriptor is non blocking
   int master_status_flags = fcntl(master, F_GETFL);
@@ -118,7 +132,11 @@ error:
 
 const char *pty_process_tty_name(PtyProcess *ptyproc)
 {
+#ifdef __amigaos__
+  return ptyproc->tty_name;
+#else
   return ptsname(ptyproc->tty_fd);
+#endif
 }
 
 void pty_process_resize(PtyProcess *ptyproc, uint16_t width, uint16_t height)
@@ -151,6 +169,142 @@ void pty_process_teardown(Loop *loop)
   uv_signal_stop(&loop->children_watcher);
 }
 
+#ifdef __amigaos__
+/// A free pty pair: the master open read/write, the slave's name in
+/// ptyproc->tty_name. BSD names, as ixemul serves them from PTY: (the same
+/// scan as tmux-amiga's amiga_openpty).
+static int amiga_open_master(PtyProcess *ptyproc)
+  FUNC_ATTR_NONNULL_ALL
+{
+  static const char c1[] = "pqrstu";
+  static const char c2[] = "0123456789abcdef";
+  char m[16];
+
+  for (int i = 0; c1[i] != '\0'; i++) {
+    for (int j = 0; c2[j] != '\0'; j++) {
+      snprintf(m, sizeof(m), "/dev/pty%c%c", c1[i], c2[j]);
+      int fd = open(m, O_RDWR);
+      if (fd == -1) {
+        continue;
+      }
+      snprintf(ptyproc->tty_name, sizeof(ptyproc->tty_name),
+               "/dev/tty%c%c", c1[i], c2[j]);
+      return fd;
+    }
+  }
+  errno = EAGAIN;
+  return -1;
+}
+
+/// The child's environment: ours without COLUMNS, LINES, TERMCAP,
+/// COLORTERM, COLORFGBG and TERM, plus TERM=term. Built here because a
+/// vfork child shares our memory: the forkpty path's os_unsetenv/os_setenv
+/// in the child would change OUR environment.
+static char **amiga_child_env(const char *term)
+{
+  extern char **environ;
+  static const char *const drop[] = {
+    "COLUMNS=", "LINES=", "TERMCAP=", "COLORTERM=", "COLORFGBG=", "TERM=",
+  };
+  size_t n = 0;
+  while (environ[n] != NULL) {
+    n++;
+  }
+  char **env = xmalloc((n + 2) * sizeof(char *));
+  size_t k = 0;
+  for (size_t i = 0; i < n; i++) {
+    bool keep = true;
+    for (size_t d = 0; d < ARRAY_SIZE(drop); d++) {
+      if (strncmp(environ[i], drop[d], strlen(drop[d])) == 0) {
+        keep = false;
+        break;
+      }
+    }
+    if (keep) {
+      env[k++] = environ[i];
+    }
+  }
+  size_t tl = strlen("TERM=") + strlen(term) + 1;
+  env[k] = xmalloc(tl);
+  snprintf(env[k], tl, "TERM=%s", term);
+  env[k + 1] = NULL;
+  return env;
+}
+
+/// forkpty() for AmigaOS: the master here, the child by vfork. Until its
+/// exec the child shares our data and heap, so it only changes what is its
+/// own: its session, descriptors, controlling tty and tty modes, signals,
+/// directory. Returns the child's pid (the master in *master) or -1.
+static int amiga_pty_spawn(PtyProcess *ptyproc, int *master)
+  FUNC_ATTR_NONNULL_ALL
+{
+  extern char **environ;
+  Process *proc = (Process *)ptyproc;
+  int mfd = amiga_open_master(ptyproc);
+  if (mfd < 0) {
+    return -1;
+  }
+  char **env = amiga_child_env(ptyproc->term_name ? ptyproc->term_name
+                                                  : "ansi");
+  char **saved = environ;
+  char *prog = proc->argv[0];
+  const char *cwd = proc->cwd;
+  int maxfd = getdtablesize();
+
+  int pid = vfork();
+  if (pid == 0) {
+    setsid();
+    close(0);
+    close(1);
+    close(2);
+    if (open(ptyproc->tty_name, O_RDWR) != 0) {
+      _exit(122);
+    }
+    dup(0);
+    dup(0);
+# ifdef TIOCSCTTY
+    ioctl(0, TIOCSCTTY, (char *)0);
+# endif
+    tcsetpgrp(0, getpid());
+    tcsetattr(0, TCSANOW, &termios_default);
+    ioctl(0, TIOCSWINSZ, &ptyproc->winsize);
+    for (int fd = 3; fd < maxfd; fd++) {
+      close(fd);  // the master among them
+    }
+    signal(SIGCHLD, SIG_DFL);
+    signal(SIGHUP, SIG_DFL);
+    signal(SIGINT, SIG_DFL);
+    signal(SIGQUIT, SIG_DFL);
+    signal(SIGTERM, SIG_DFL);
+    signal(SIGALRM, SIG_DFL);
+    if (cwd && chdir(cwd) != 0) {
+      _exit(122);
+    }
+    environ = env;
+    execvp(prog, proc->argv);
+    _exit(122);  // 122 is EXEC_FAILED in the Vim source.
+  }
+  int err = errno;
+  environ = saved;
+  // the exec copied the environment (or the child is gone): ours to free.
+  // The last entry is the TERM= string amiga_child_env allocated.
+  size_t last = 0;
+  while (env[last + 1] != NULL) {
+    last++;
+  }
+  xfree(env[last]);
+  xfree(env);
+  if (pid < 0) {
+    close(mfd);
+    errno = err;
+    return -1;
+  }
+  *master = mfd;
+  return pid;
+}
+#endif
+
+#ifndef __amigaos__
 static void init_child(PtyProcess *ptyproc)
   FUNC_ATTR_NONNULL_ALL
 {
@@ -182,6 +336,7 @@ static void init_child(PtyProcess *ptyproc)
   ELOG("execvp failed: %s: %s", strerror(errno), prog);
   _exit(122);  // 122 is EXEC_FAILED in the Vim source.
 }
+#endif
 
 static void init_termios(struct termios *termios) FUNC_ATTR_NONNULL_ALL
 {

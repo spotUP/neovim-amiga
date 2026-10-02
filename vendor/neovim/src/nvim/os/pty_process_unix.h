@@ -11,6 +11,9 @@ typedef struct pty_process {
   uint16_t width, height;
   struct winsize winsize;
   int tty_fd;
+#ifdef __amigaos__
+  char tty_name[32];  ///< the slave's name (AmigaOS: no ptsname)
+#endif
 } PtyProcess;
 
 static inline PtyProcess pty_process_init(Loop *loop, void *data)
@@ -21,6 +24,9 @@ static inline PtyProcess pty_process_init(Loop *loop, void *data)
   rv.width = 80;
   rv.height = 24;
   rv.tty_fd = -1;
+#ifdef __amigaos__
+  rv.tty_name[0] = '\0';
+#endif
   return rv;
 }
 
