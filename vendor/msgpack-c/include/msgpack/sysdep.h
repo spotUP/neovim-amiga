@@ -51,6 +51,13 @@
     typedef long _msgpack_atomic_counter_t;
 #   define _msgpack_sync_decr_and_fetch(ptr) InterlockedDecrement(ptr)
 #   define _msgpack_sync_incr_and_fetch(ptr) InterlockedIncrement(ptr)
+#elif defined(__amigaos__)
+    /* one thread per process (ixemul), and the unpacker's reference count
+       is never touched from a signal handler: plain arithmetic. gcc has no
+       __sync builtins for m68k-amigaos (no libatomic). */
+    typedef unsigned int _msgpack_atomic_counter_t;
+#   define _msgpack_sync_decr_and_fetch(ptr) (--*(ptr))
+#   define _msgpack_sync_incr_and_fetch(ptr) (++*(ptr))
 #elif defined(__GNUC__) && ((__GNUC__*10 + __GNUC_MINOR__) < 41)
 
 #   if defined(__cplusplus)
