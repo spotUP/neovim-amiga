@@ -1239,6 +1239,14 @@ static void uv__read(uv_stream_t* stream) {
         stream->flags |= UV_HANDLE_READ_PARTIAL;
         return;
       }
+#if defined(__amigaos__)
+      /* A tty left blocking (tty.c never reopens one here, so it keeps the
+       * shared console's blocking mode): poll said one read would not
+       * block, a second one might, until the user types. One read per
+       * readiness; the loop comes back while there is more. */
+      if (stream->flags & UV_HANDLE_BLOCKING_WRITES)
+        return;
+#endif
     }
   }
 }

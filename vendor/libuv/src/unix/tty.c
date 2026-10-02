@@ -44,8 +44,8 @@ static int uv__tty_is_slave(const int fd) {
   /* Never reopen an ixemul terminal: "/dev/tty" names the process's console
    * (an XCON:/CON: window or a PTY: slave), and libuv then leaves the shared
    * descriptor in blocking mode with blocking writes, so the shell that
-   * shares the console never inherits O_NONBLOCK. libuv reads a tty only
-   * after poll says it is readable, one read per readiness. */
+   * shares the console never inherits O_NONBLOCK. stream.c then reads such
+   * a tty once per readiness, so a blocking read never waits. */
   (void) fd;
   result = 0;
 #elif defined(__linux__) || defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
@@ -153,8 +153,14 @@ int uv_tty_init(uv_loop_t* loop, uv_tty_t* tty, int fd, int unused) {
 
     if (r < 0) {
       /* fallback to using blocking writes */
+#if defined(__amigaos__)
+      /* and blocking reads (see uv__tty_is_slave): the flag also tells
+         stream.c to read once per readiness */
+      flags |= UV_HANDLE_BLOCKING_WRITES;
+#else
       if (mode != O_RDONLY)
         flags |= UV_HANDLE_BLOCKING_WRITES;
+#endif
       goto skip;
     }
 
