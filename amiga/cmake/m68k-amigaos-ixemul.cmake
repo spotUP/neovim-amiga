@@ -27,3 +27,10 @@ set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 
 # no thread library: see NVIM_NO_THREADS in vendor/neovim/CMakeLists.txt
 set(NVIM_NO_THREADS ON)
+
+# pkg-config would answer with the HOST's libraries (Homebrew libuv's
+# -lpthread -lm, i.e. newlib's libm, which clashes with ixemul's libc).
+# Here, not in the configure script: CMake re-reads the toolchain file when
+# it regenerates on its own after a CMakeLists.txt change.
+set(ENV{PKG_CONFIG_LIBDIR} "${NA_ROOT}/build/m68k/sysroot/lib/pkgconfig")
+set(ENV{PKG_CONFIG_PATH} "")

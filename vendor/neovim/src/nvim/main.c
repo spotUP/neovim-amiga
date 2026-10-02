@@ -228,6 +228,15 @@ void early_init(void)
   ui_comp_syn_init();
 }
 
+#ifdef __amigaos__
+// AmigaOS gives a program the stack its starter chooses (4 KB from
+// Workbench, the CLI's default, 16 KB under UP-Term's vsh), and does not
+// grow it. The "$STACK: n" cookie in the file is how a program asks for
+// more (AmigaOS 3.2's shell and vsh honour it). Neovim recurses (eval,
+// regexp, Lua calls through C): 1 MB, decided in the port's ledger.
+const char amiga_stack_cookie[] __attribute__((used)) = "$STACK: 1048576";
+#endif
+
 #ifdef MAKE_LIB
 int nvim_main(int argc, char **argv);  // silence -Wmissing-prototypes
 int nvim_main(int argc, char **argv)

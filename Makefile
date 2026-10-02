@@ -225,3 +225,21 @@ host-deps: $(H)/libuv.a
 	$(HD_MAKE) $(HD)/liblua.a $(HD)/libmsgpackc.a $(HD)/libunibilium.a \
 	  $(HD)/libtermkey.a $(HD)/libvterm.a $(HD)/libluv.a
 	$(HD_MAKE) SYSROOT_DEPS= sysroot
+
+# ---- dist: what goes onto the Amiga ----------------------------------------
+# build/m68k/dist/nvim/bin/nvim (stripped) + share/nvim/runtime, the layout
+# Neovim finds its runtime by (../share/nvim/runtime from the binary). The
+# runtime comes from the host build's install (same 0.4.4 tree): its
+# generated syntax/vim/generated.vim and doc/tags cannot be made by
+# running the m68k binary here.
+DIST = $(B)/dist/nvim
+dist:
+	ninja -C $(B)/nvim nvim
+	ninja -C $(H)/nvim nvim
+	rm -rf $(H)/stage && DESTDIR=$(CURDIR)/$(H)/stage ninja -C $(H)/nvim install > $(H)/install.log
+	rm -rf $(B)/dist && mkdir -p $(DIST)/bin $(DIST)/share/nvim
+	$(AMIGA)/bin/m68k-amigaos-strip -o $(DIST)/bin/nvim $(B)/nvim/bin/nvim
+	chmod +x $(DIST)/bin/nvim
+	cp -R $(H)/stage/usr/local/share/nvim/runtime $(DIST)/share/nvim/
+	cp $(B)/uvsmoke $(B)/lua51 $(B)/dist/ 2>/dev/null || true
+	ls -l $(DIST)/bin/nvim
