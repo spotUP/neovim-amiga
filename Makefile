@@ -24,10 +24,11 @@ libs: $(B)/libamigacompat.a $(B)/libuv.a $(B)/liblua.a $(B)/lua51 $(B)/libmsgpac
 
 # ---- what ixemul 48.2 lacks: IPv6 types, getaddrinfo (ledger R1) ----------
 COMPAT_INC = -Iamiga/compat/include
+COMPAT_HDRS = $(wildcard amiga/compat/include/*.h amiga/compat/include/*/*.h)
 COMPAT_OBJS = $(B)/compat/netdb.o $(B)/compat/posix.o $(B)/compat/eprintf.o \
               $(B)/compat/math.o
 
-$(B)/compat/%.o: amiga/compat/%.c $(wildcard amiga/compat/include/*.h amiga/compat/include/*/*.h)
+$(B)/compat/%.o: amiga/compat/%.c $(COMPAT_HDRS)
 	@mkdir -p $(dir $@)
 	$(AGCC) $(ACFLAGS) $(COMPAT_INC) -c -o $@ $<
 
@@ -49,7 +50,7 @@ UV_OBJS = $(addprefix $(B)/libuv/,$(UV_SRCS:.c=.o))
 UV_HDRS = $(wildcard $(UV)/include/*.h $(UV)/include/uv/*.h $(UV)/src/*.h \
             $(UV)/src/unix/*.h)
 
-$(B)/libuv/%.o: $(UV)/%.c $(UV_HDRS)
+$(B)/libuv/%.o: $(UV)/%.c $(UV_HDRS) $(COMPAT_HDRS)
 	@mkdir -p $(dir $@)
 	$(AGCC) $(ACFLAGS) $(UV_INC) -c -o $@ $<
 
@@ -112,7 +113,7 @@ LUA_SRCS = lapi.c lcode.c ldebug.c ldo.c ldump.c lfunc.c lgc.c llex.c lmem.c \
 LUA_OBJS = $(addprefix $(B)/lua/,$(LUA_SRCS:.c=.o))
 LUA_DEFS = -DLUA_USE_POSIX
 
-$(B)/lua/%.o: $(LUA)/%.c $(wildcard $(LUA)/*.h)
+$(B)/lua/%.o: $(LUA)/%.c $(wildcard $(LUA)/*.h) $(COMPAT_HDRS)
 	@mkdir -p $(dir $@)
 	$(AGCC) $(ACFLAGS) $(COMPAT_INC) $(LUA_DEFS) -c -o $@ $<
 
@@ -129,7 +130,7 @@ MP      = vendor/msgpack-c
 MP_SRCS = objectc.c unpack.c version.c vrefbuffer.c zone.c
 MP_OBJS = $(addprefix $(B)/msgpack/,$(MP_SRCS:.c=.o))
 
-$(B)/msgpack/%.o: $(MP)/src/%.c
+$(B)/msgpack/%.o: $(MP)/src/%.c $(COMPAT_HDRS)
 	@mkdir -p $(dir $@)
 	$(AGCC) $(ACFLAGS) $(COMPAT_INC) -I$(MP)/include -c -o $@ $<
 
@@ -145,7 +146,7 @@ UB_SRCS = unibilium.c uninames.c uniutil.c
 UB_OBJS = $(addprefix $(B)/unibilium/,$(UB_SRCS:.c=.o))
 UB_DEFS = -DTERMINFO_DIRS='"/usr/share/terminfo:/usr/lib/terminfo:/gg/share/terminfo"'
 
-$(B)/unibilium/%.o: $(UB)/%.c $(UB)/unibilium.h
+$(B)/unibilium/%.o: $(UB)/%.c $(UB)/unibilium.h $(COMPAT_HDRS)
 	@mkdir -p $(dir $@)
 	$(AGCC) $(ACFLAGS) $(COMPAT_INC) $(UB_DEFS) -I$(UB) -c -o $@ $<
 
@@ -158,7 +159,7 @@ TK      = vendor/libtermkey
 TK_SRCS = termkey.c driver-csi.c driver-ti.c
 TK_OBJS = $(addprefix $(B)/termkey/,$(TK_SRCS:.c=.o))
 
-$(B)/termkey/%.o: $(TK)/%.c $(TK)/termkey.h $(TK)/termkey-internal.h
+$(B)/termkey/%.o: $(TK)/%.c $(TK)/termkey.h $(TK)/termkey-internal.h $(COMPAT_HDRS)
 	@mkdir -p $(dir $@)
 	$(AGCC) $(ACFLAGS) $(COMPAT_INC) -DHAVE_UNIBILIUM -I$(UB) -I$(TK) -c -o $@ $<
 
@@ -177,7 +178,7 @@ $(B)/vterm-gen/encoding/%.inc: $(VT)/src/encoding/%.tbl
 	@mkdir -p $(dir $@)
 	perl -C $(VT)/tbl2inc_c.pl $< > $@
 
-$(B)/vterm/%.o: $(VT)/src/%.c $(VT_INCS)
+$(B)/vterm/%.o: $(VT)/src/%.c $(VT_INCS) $(COMPAT_HDRS)
 	@mkdir -p $(dir $@)
 	$(AGCC) $(ACFLAGS) $(COMPAT_INC) -std=gnu99 -I$(VT)/include -I$(VT)/src \
 	  -I$(B)/vterm-gen -c -o $@ $<
@@ -188,7 +189,7 @@ $(B)/libvterm.a: $(VT_OBJS)
 
 # ---- luv 1.30.0-0 (libuv for Lua; vim.loop) --------------------------------
 LUV     = vendor/luv
-$(B)/luv/luv.o: $(wildcard $(LUV)/src/*.c $(LUV)/src/*.h) $(B)/libuv.a
+$(B)/luv/luv.o: $(wildcard $(LUV)/src/*.c $(LUV)/src/*.h) $(B)/libuv.a $(COMPAT_HDRS)
 	@mkdir -p $(dir $@)
 	$(AGCC) $(ACFLAGS) $(COMPAT_INC) -I$(UV)/include -I$(LUA) \
 	  -Ivendor/lua-compat-5.3 -Ivendor/lua-compat-5.3/c-api \
@@ -197,3 +198,30 @@ $(B)/luv/luv.o: $(wildcard $(LUV)/src/*.c $(LUV)/src/*.h) $(B)/libuv.a
 $(B)/libluv.a: $(B)/luv/luv.o
 	rm -f $@
 	$(AAR) rcs $@ $(B)/luv/luv.o
+
+# ---- sysroot: the dependencies as Neovim's CMake finds them ---------------
+SYSROOT_DEPS ?= libs
+SR = $(B)/sysroot
+sysroot: $(SYSROOT_DEPS)
+	rm -rf $(SR) && mkdir -p $(SR)/include/luv $(SR)/include/uv $(SR)/lib
+	cp $(UV)/include/*.h $(SR)/include/ && cp $(UV)/include/uv/*.h $(SR)/include/uv/
+	cp $(LUA)/lua.h $(LUA)/luaconf.h $(LUA)/lualib.h $(LUA)/lauxlib.h $(SR)/include/
+	printf 'extern "C" {\n#include "lua.h"\n#include "lualib.h"\n#include "lauxlib.h"\n}\n' > $(SR)/include/lua.hpp
+	cp -R $(MP)/include/msgpack $(MP)/include/msgpack.h $(SR)/include/
+	cp $(UB)/unibilium.h $(TK)/termkey.h $(VT)/include/*.h $(SR)/include/
+	cp $(LUV)/src/luv.h $(LUV)/src/util.h $(LUV)/src/lhandle.h $(LUV)/src/lreq.h $(SR)/include/luv/
+	cp $(B)/libuv.a $(B)/liblua.a $(B)/libmsgpackc.a $(B)/libunibilium.a \
+	   $(B)/libtermkey.a $(B)/libvterm.a $(B)/libluv.a $(wildcard $(B)/libamigacompat.a) $(SR)/lib/
+
+# ---- host Neovim: the same no-threads libuv and inline TUI on this Mac ----
+# (tools/configure-nvim.sh --host). Proves the UV_NO_THREADS paths in
+# Neovim itself (TUI on the main loop, synchronous work queue) without the
+# rig; the __amigaos__ paths (vfork, PTY:) only run on the Amiga.
+HD = build/hostdeps
+HD_MAKE = $(MAKE) -o $(HD)/libuv.a B=$(HD) AGCC=$(HOSTCC) AAR=ar \
+          ACFLAGS='-O1 -g -w -DUV_NO_THREADS -DUV_POSIX_POLL' COMPAT_INC= COMPAT_HDRS=
+host-deps: $(H)/libuv.a
+	mkdir -p $(HD) && cp $(H)/libuv.a $(HD)/libuv.a
+	$(HD_MAKE) $(HD)/liblua.a $(HD)/libmsgpackc.a $(HD)/libunibilium.a \
+	  $(HD)/libtermkey.a $(HD)/libvterm.a $(HD)/libluv.a
+	$(HD_MAKE) SYSROOT_DEPS= sysroot

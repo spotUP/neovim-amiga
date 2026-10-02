@@ -358,8 +358,10 @@ if(CMAKE_C_COMPILER_ID STREQUAL "GNU" OR CMAKE_C_COMPILER_ID STREQUAL "Clang")
   add_definitions(-D_GNU_SOURCE)
 endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_SIZEOF_VOID_P EQUAL 8)
-  # Required for luajit.
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND CMAKE_SIZEOF_VOID_P EQUAL 8
+   AND NOT PREFER_LUA)
+  # Required for luajit (only: with PUC Lua, which neovim-amiga's host test
+  # build uses, arm64 macOS rejects the binary as malformed).
   set(CMAKE_EXE_LINKER_FLAGS
     "${CMAKE_EXE_LINKER_FLAGS} -pagezero_size 10000 -image_base 100000000")
   set(CMAKE_SHARED_LINKER_FLAGS
@@ -473,7 +475,13 @@ endif()
 # Determine platform's threading library. Set CMAKE_THREAD_PREFER_PTHREAD
 # explicitly to indicate a strong preference for pthread.
 set(CMAKE_THREAD_PREFER_PTHREAD ON)
-find_package(Threads REQUIRED)
+if(NVIM_NO_THREADS)
+  # AmigaOS + ixemul: one task per process, no thread library (the
+  # toolchain file sets NVIM_NO_THREADS; libuv runs its nothreads backend)
+  set(CMAKE_THREAD_LIBS_INIT "")
+else()
+  find_package(Threads REQUIRED)
+endif()
 
 # Place targets in bin/ or lib/ for all build configurations
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)

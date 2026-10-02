@@ -1,0 +1,4 @@
+#!/bin/sh
+# Neovim's LUA_PRG: the host LuaJIT with lpeg and mpack (tools/host-lua.sh).
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+LUA_CPATH="$ROOT/build/host/lua/?.so;${LUA_CPATH:-;}" exec /usr/local/bin/luajit "$@"
