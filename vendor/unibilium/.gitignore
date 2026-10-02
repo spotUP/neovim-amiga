@@ -1,0 +1,10 @@
+*.o
+*.lo
+*.la
+.libs
+t/*.t
+tools/*
+!tools/*.c
+.*.swp
+/.maint
+/tags
