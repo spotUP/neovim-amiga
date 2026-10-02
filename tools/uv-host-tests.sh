@@ -13,7 +13,11 @@ LOG=$ROOT/build/host/uv-tests.tsv
 OUT=$ROOT/build/host/uv-tests-out
 mkdir -p "$OUT"
 touch "$LOG"
-cd "$ROOT/vendor/libuv" || exit 1    # tests open test/fixtures/... from here
+# tests open test/fixtures/... relative to the cwd and leave files there
+# (watch_dir, watch_file): a scratch cwd in build/, not the vendor tree
+CWD=$ROOT/build/host/uv-cwd
+mkdir -p "$CWD" && ln -sfn "$ROOT/vendor/libuv/test" "$CWD/test"
+cd "$CWD" || exit 1
 
 if [ $# -gt 0 ] && [ "$1" = "--failed" ]; then
 	set -- $(awk -F'\t' '$2 ~ /^fail/ {print $1}' "$LOG")
