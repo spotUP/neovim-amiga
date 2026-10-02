@@ -1,0 +1,102 @@
+# Neovim 0.4.4 for AmigaOS 3.x / 68020 / ixemul 48.2 (UP-Term plan Q1).
+# Cross build with bebbo's gcc; the ledger is
+# thoughts/shared/plans/2026-10-03-neovim-port.md.
+#
+#   make            every m68k library (build/m68k/lib*.a)
+#   make host-test  libuv's backend built for this Mac (no threads,
+#                   posix-poll, the synchronous work queue) + its tests
+AMIGA   ?= $(HOME)/opt/amiga
+AGCC    ?= $(AMIGA)/bin/m68k-amigaos-gcc
+AAR     ?= $(AMIGA)/bin/m68k-amigaos-ar
+ACFLAGS ?= -mcrt=ixemul -m68020 -O2 -fno-strict-aliasing -Wall -Wno-unused \
+           -Wno-pointer-sign
+# link without -m68020: the ixemul SDK has no libm020 multilib, and with
+# the flag the driver picks libnix's crt0 (68020 objects + 68000 libc is fine)
+ALDFLAGS ?= -mcrt=ixemul
+HOSTCC  ?= cc
+B       = build/m68k
+H       = build/host
+
+.PHONY: all libs host-test clean
+all: libs
+libs: $(B)/libamigacompat.a $(B)/libuv.a
+
+# ---- what ixemul 48.2 lacks: IPv6 types, getaddrinfo (ledger R1) ----------
+COMPAT_INC = -Iamiga/compat/include
+COMPAT_OBJS = $(B)/compat/netdb.o $(B)/compat/posix.o $(B)/compat/eprintf.o
+
+$(B)/compat/%.o: amiga/compat/%.c $(wildcard amiga/compat/include/*.h amiga/compat/include/*/*.h)
+	@mkdir -p $(dir $@)
+	$(AGCC) $(ACFLAGS) $(COMPAT_INC) -c -o $@ $<
+
+$(B)/libamigacompat.a: $(COMPAT_OBJS)
+	rm -f $@
+	$(AAR) rcs $@ $(COMPAT_OBJS)
+
+# ---- libuv 1.30.0: the UNIX core, posix-poll, no threads -----------------
+UV      = vendor/libuv
+UV_COMMON = fs-poll.c idna.c inet.c strscpy.c threadpool.c timer.c \
+            uv-common.c uv-data-getter-setters.c version.c
+UV_UNIX = async.c core.c dl.c fs.c getaddrinfo.c getnameinfo.c \
+          loop-watcher.c loop.c pipe.c poll.c process.c signal.c stream.c \
+          tcp.c tty.c udp.c posix-poll.c no-fsevents.c no-proctitle.c \
+          nothreads.c amiga.c amiga-os.c
+UV_SRCS = $(addprefix src/,$(UV_COMMON)) $(addprefix src/unix/,$(UV_UNIX))
+UV_INC  = $(COMPAT_INC) -I$(UV)/include -I$(UV)/src
+UV_OBJS = $(addprefix $(B)/libuv/,$(UV_SRCS:.c=.o))
+UV_HDRS = $(wildcard $(UV)/include/*.h $(UV)/include/uv/*.h $(UV)/src/*.h \
+            $(UV)/src/unix/*.h)
+
+$(B)/libuv/%.o: $(UV)/%.c $(UV_HDRS)
+	@mkdir -p $(dir $@)
+	$(AGCC) $(ACFLAGS) $(UV_INC) -c -o $@ $<
+
+$(B)/libuv.a: $(UV_OBJS)
+	rm -f $@
+	$(AAR) rcs $@ $(UV_OBJS)
+
+clean:
+	rm -rf build/m68k build/host/libuv
+
+# ---- uvsmoke: the libuv features Neovim uses, self-checking ---------------
+$(B)/uvsmoke: tests/uvsmoke.c $(B)/libuv.a $(B)/libamigacompat.a
+	$(AGCC) $(ACFLAGS) $(COMPAT_INC) -I$(UV)/include -c -o $(B)/uvsmoke.o tests/uvsmoke.c
+	$(AGCC) $(ALDFLAGS) -o $@ $(B)/uvsmoke.o $(B)/libuv.a $(B)/libamigacompat.a -lixcompat
+
+# ---- host test build: the same backend on this machine ---------------------
+# UV_NO_THREADS + UV_POSIX_POLL select nothreads.c, the synchronous work
+# queue and posix-poll.c; poll() is libixcompat's own select()-based one
+# (compiled from ixemul-vtcon, read-only), renamed so the system's stays
+# out of the way. uv_spawn stays on fork() here: macOS's vfork() does not
+# share memory with the child (probed), so the vfork path (UV__SPAWN_VFORK)
+# is only testable on the Amiga (uvsmoke's spawn checks).
+IXCOMPAT ?= $(HOME)/Code/ixemul-vtcon/compat
+HCFLAGS = -O1 -g -Wall -Wno-unused -Wno-deprecated-declarations \
+          -DUV_NO_THREADS -DUV_POSIX_POLL -Dpoll=uvhost_select_poll \
+          -D_DARWIN_UNLIMITED_SELECT=0 -I$(UV)/include -I$(UV)/src
+H_UV_OBJS = $(addprefix $(H)/libuv/,$(UV_SRCS:.c=.o)) $(H)/libuv/ixpoll.o
+H_UV_OBJS := $(filter-out $(H)/libuv/src/unix/amiga-os.o,$(H_UV_OBJS))
+
+$(H)/libuv/%.o: $(UV)/%.c $(UV_HDRS)
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(HCFLAGS) -c -o $@ $<
+
+$(H)/libuv/ixpoll.o: $(IXCOMPAT)/poll.c
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(HCFLAGS) -c -o $@ $<
+
+$(H)/libuv.a: $(H_UV_OBJS)
+	rm -f $@
+	ar rcs $@ $(H_UV_OBJS)
+
+$(H)/uvsmoke: tests/uvsmoke.c $(H)/libuv.a
+	$(HOSTCC) $(HCFLAGS) -o $@ tests/uvsmoke.c $(H)/libuv.a
+
+# libuv's own test runner over the host build (tests by name: see
+# tools/uv-host-tests.sh for the list that matters to Neovim)
+UV_TEST_SRCS = $(filter-out $(UV)/test/benchmark-% $(UV)/test/runner-win.c \
+                 $(UV)/test/run-benchmarks.c $(UV)/test/echo-server.c \
+                 $(UV)/test/blackhole-server.c,$(wildcard $(UV)/test/*.c))
+$(H)/uv-run-tests: $(UV_TEST_SRCS) $(H)/libuv.a
+	$(HOSTCC) $(HCFLAGS) -w -include pthread.h -I$(UV)/test -o $@ $(UV_TEST_SRCS) \
+	  $(UV)/test/echo-server.c $(UV)/test/blackhole-server.c $(H)/libuv.a -lpthread
