@@ -27,4 +27,10 @@ rules (`~/.claude/CLAUDE.md`) apply; this file adds the project's. The ledger is
 | libuv's own tests, host build, resumable (records `build/host/uv-tests.tsv`) | `make build/host/uv-run-tests && tools/uv-host-tests.sh [name...]` |
 | Re-run only the recorded failures | `tools/uv-host-tests.sh --failed` |
 | Host generator Lua (LuaJIT + lpeg + mpack) | `tools/host-lua.sh` |
+| Configure Neovim for m68k (once; ninja re-runs CMake itself) | `make sysroot && tools/configure-nvim.sh` |
+| Build Neovim for m68k | `ninja -C build/m68k/nvim nvim` |
+| Host Neovim on the same no-threads libuv (proof build) | `make host-deps && tools/configure-nvim.sh --host && ninja -C build/host/nvim nvim` |
+| TUI driven through a pty (host build) | `python3 tests/tui_drive.py` |
+| What goes onto the Amiga (nvim tree + runtime, uvsmoke, lua51) | `make dist` -> `build/m68k/dist/` |
+| On the rig (whoever drives it, never this repo's agent) | `python3 tools/nvim_rig.py [--tui]` |
 | Clean | `make clean` |
