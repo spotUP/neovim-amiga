@@ -2,6 +2,11 @@
 // it. PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 
 // Terminal UI functions. Invoked (by ui_bridge.c) on the TUI thread.
+//
+// Without threads (UV_NO_THREADS: libuv on AmigaOS/ixemul) the TUI runs on
+// the main loop instead: tui_start() attaches it directly, as a remote UI
+// is attached, and every UI callback runs in the caller (see
+// tui_attach_inline()).
 
 #include <assert.h>
 #include <stdbool.h>
@@ -80,6 +85,9 @@ typedef struct {
   size_t normlen, invislen;
   TermInput input;
   uv_loop_t write_loop;
+#ifdef UV_NO_THREADS
+  TimeWatcher startup_timer;  ///< ends the startup phase (the thread's 100 ms)
+#endif
   unibi_term *ut;
   union {
     uv_tty_t tty;
@@ -171,7 +179,12 @@ UI *tui_start(void)
   ui->ui_ext[kUILinegrid] = true;
   ui->ui_ext[kUITermColors] = true;
 
+#ifdef UV_NO_THREADS
+  tui_attach_inline(ui);
+  return ui;
+#else
   return ui_bridge_attach(ui, tui_main, tui_scheduler);
+#endif
 }
 
 static size_t unibi_pre_fmt_str(TUIData *data, unsigned int unibi_index,
@@ -384,8 +397,12 @@ static void tui_terminal_stop(UI *ui)
 
 static void tui_stop(UI *ui)
 {
+#ifdef UV_NO_THREADS
+  tui_stop_inline(ui);
+#else
   tui_terminal_stop(ui);
   ui->data = NULL;  // Flag UI as "stopped".
+#endif
 }
 
 /// Returns true if UI `ui` is stopped.
@@ -394,6 +411,7 @@ static bool tui_is_stopped(UI *ui)
   return ui->data == NULL;
 }
 
+#ifndef UV_NO_THREADS
 /// Main function of the TUI thread.
 static void tui_main(UIBridgeData *bridge, UI *ui)
 {
@@ -453,6 +471,71 @@ static void tui_main(UIBridgeData *bridge, UI *ui)
   xfree(data);
 }
 
+#endif  // !UV_NO_THREADS
+
+#ifdef UV_NO_THREADS
+static void tui_startup_timer_cb(TimeWatcher *watcher, void *d)
+{
+  UI *ui = d;
+  if (tui_is_stopped(ui)) {
+    return;
+  }
+  tui_terminal_after_startup(ui);
+  // Tickle `main_loop` with a dummy event, else the initial "focus-gained"
+  // terminal response may not get processed until user hits a key.
+  loop_schedule_deferred(&main_loop, event_create(loop_dummy_event, 0));
+}
+
+/// tui_main() for a process without threads: the same set-up, on
+/// `main_loop`, then the UI is attached directly. The thread's first-100-ms
+/// "active loop" becomes a one-shot timer; its "passive loop" is the main
+/// loop itself.
+static void tui_attach_inline(UI *ui)
+{
+  TUIData *data = xcalloc(1, sizeof(TUIData));
+  ui->data = data;
+  data->bridge = NULL;
+  data->loop = &main_loop;
+  data->is_starting = true;
+  kv_init(data->invalid_regions);
+  signal_watcher_init(data->loop, &data->winch_handle, ui);
+  signal_watcher_init(data->loop, &data->cont_handle, data);
+#ifdef UNIX
+  signal_watcher_start(&data->cont_handle, sigcont_cb, SIGCONT);
+#endif
+  kv_push(data->attrs, HLATTRS_INIT);
+#if TERMKEY_VERSION_MAJOR > 0 || TERMKEY_VERSION_MINOR > 18
+  data->input.tk_ti_hook_fn = tui_tk_ti_getstr;
+#endif
+  tinput_init(&data->input, data->loop);
+  tui_terminal_start(ui);
+  loop_schedule_deferred(&main_loop,
+                         event_create(show_termcap_event, 1, data->ut));
+  time_watcher_init(data->loop, &data->startup_timer, ui);
+  time_watcher_start(&data->startup_timer, tui_startup_timer_cb, 100, 0);
+  ui_attach_impl(ui, 0);
+}
+
+/// The stop for tui_attach_inline(). Only mch_exit() stops the builtin UI;
+/// its loop_close() then runs the close callbacks, which still touch the
+/// handles inside TUIData, so `data` and `ui` stay allocated (the process
+/// is exiting).
+static void tui_stop_inline(UI *ui)
+{
+  TUIData *data = ui->data;
+  ui_detach_impl(ui, 0);
+  tui_terminal_stop(ui);
+  ui->data = NULL;  // Flag UI as "stopped".
+  time_watcher_stop(&data->startup_timer);
+  time_watcher_close(&data->startup_timer, NULL);
+  tinput_destroy(&data->input);
+  signal_watcher_stop(&data->cont_handle);
+  signal_watcher_close(&data->cont_handle, NULL);
+  signal_watcher_close(&data->winch_handle, NULL);
+}
+#endif
+
+#ifndef UV_NO_THREADS
 /// Handoff point between the main (ui_bridge) thread and the TUI thread.
 static void tui_scheduler(Event event, void *d)
 {
@@ -460,6 +543,7 @@ static void tui_scheduler(Event event, void *d)
   TUIData *data = ui->data;
   loop_schedule_fast(data->loop, event);  // `tui_loop` local to tui_main().
 }
+#endif
 
 #ifdef UNIX
 static void sigcont_cb(SignalWatcher *watcher, int signum, void *data)
@@ -1164,6 +1248,9 @@ static void tui_flush(UI *ui)
   TUIData *data = ui->data;
   UGrid *grid = &data->grid;
 
+#ifndef UV_NO_THREADS
+  // (without threads the UI calls are direct: there is no TUI queue, and
+  // data->loop is main_loop, which must never be purged)
   size_t nrevents = loop_size(data->loop);
   if (nrevents > TOO_MANY_EVENTS) {
     WLOG("TUI event-queue flooded (thread_events=%zu); purging", nrevents);
@@ -1175,6 +1262,7 @@ static void tui_flush(UI *ui)
     loop_purge(data->loop);
     tui_busy_stop(ui);  // avoid hidden cursor
   }
+#endif
 
   while (kv_size(data->invalid_regions)) {
     Rect r = kv_pop(data->invalid_regions);
@@ -1247,7 +1335,9 @@ static void suspend_event(void **argv)
   }
   stream_set_blocking(input_global_fd(), false);  // libuv expects this
   // resume the main thread
-  CONTINUE(data->bridge);
+  if (data->bridge) {
+    CONTINUE(data->bridge);
+  }
 }
 #endif
 
@@ -1404,8 +1494,12 @@ end:
     height = DFLT_ROWS;
   }
 
-  data->bridge->bridge.width = ui->width = width;
-  data->bridge->bridge.height = ui->height = height;
+  ui->width = width;
+  ui->height = height;
+  if (data->bridge) {
+    data->bridge->bridge.width = width;
+    data->bridge->bridge.height = height;
+  }
 }
 
 static void unibi_goto(UI *ui, int row, int col)

@@ -22,6 +22,10 @@ typedef struct term_input {
   RBuffer *key_buffer;
   uv_mutex_t key_buffer_mutex;
   uv_cond_t key_buffer_cond;
+#ifdef UV_NO_THREADS
+  bool retry_pending;  ///< tinput_retry_event is scheduled
+  bool read_stopped;   ///< reading paused until the key buffer drains
+#endif
 } TermInput;
 
 #ifdef INCLUDE_GENERATED_DECLARATIONS

@@ -69,7 +69,15 @@ void tinput_init(TermInput *input, Loop *loop)
   termkey_set_canonflags(input->tk, curflags | TERMKEY_CANON_DELBS);
 
   // setup input handle
+#ifdef UV_NO_THREADS
+  // one read must fit the key buffer after its expansion ("<" -> "<lt>",
+  // keys -> "<S-F12>"): no other thread drains it during the read callback
+  input->retry_pending = false;
+  input->read_stopped = false;
+  rstream_init_fd(loop, &input->read_stream, input->in_fd, 0x200);
+#else
   rstream_init_fd(loop, &input->read_stream, input->in_fd, 0xfff);
+#endif
   // initialize a timer handle for handling ESC with libtermkey
   time_watcher_init(loop, &input->timer_handle, input);
 }
@@ -147,6 +155,37 @@ static void tinput_paste_event(void **argv)
   api_free_string(keys);
 }
 
+#ifdef UV_NO_THREADS
+/// Without threads the TUI reads on the main loop, inside loop_poll_events,
+/// where the threaded TUI's scheduled tinput_wait_enqueue would also run:
+/// call it directly. If the editor's input buffer is full (it is consumed
+/// between polls, never during one), stop reading the terminal and retry
+/// on the next poll, so keys wait in the terminal, not in a full buffer.
+static void tinput_retry_event(void **argv)
+{
+  TermInput *input = argv[0];
+  input->retry_pending = false;
+  tinput_flush(input, true);
+}
+
+static void tinput_flush(TermInput *input, bool wait_until_empty)
+{
+  size_t drain_boundary = wait_until_empty ? 0 : 0xff;
+  tinput_wait_enqueue((void **)&input);
+  if (rbuffer_size(input->key_buffer) > drain_boundary) {
+    if (!input->retry_pending) {
+      input->retry_pending = true;
+      rstream_stop(&input->read_stream);
+      input->read_stopped = true;
+      loop_schedule_fast(&main_loop,
+                         event_create(tinput_retry_event, 1, input));
+    }
+  } else if (input->read_stopped && !input->retry_pending) {
+    input->read_stopped = false;
+    rstream_start(&input->read_stream, tinput_read_cb, input);
+  }
+}
+#else
 static void tinput_flush(TermInput *input, bool wait_until_empty)
 {
   size_t drain_boundary = wait_until_empty ? 0 : 0xff;
@@ -160,6 +199,7 @@ static void tinput_flush(TermInput *input, bool wait_until_empty)
     uv_mutex_unlock(&input->key_buffer_mutex);
   } while (rbuffer_size(input->key_buffer) > drain_boundary);
 }
+#endif
 
 static void tinput_enqueue(TermInput *input, char *buf, size_t size)
 {
