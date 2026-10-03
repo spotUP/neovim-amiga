@@ -197,3 +197,145 @@ tcp_try_write_error (macOS answers ECONNRESET where the test wants EPIPE: host O
    build/rig/nvim_tui.png in this repo.
 4. Send back the whole output (every ok/FAIL line, uvsmoke's lines, the times) and the
    screenshot. If a step hangs: `Status` output and RAM: listing.
+
+---
+
+# Q. Neovim 0.12.5 (owner, 2026-10-03: "the ported neovim is an old version")
+
+0.4.4 stays the working baseline: tag `amiga-0.4.4-1`, its tree `vendor/`, its build `build/m68k`,
+`build/host`. 0.12.5 lives beside it: `vendor012/` (pristine a4503cf), `Makefile.v012`, builds in
+`build/v012/`. Nothing of 0.4.4 is changed by the 0.12 work.
+
+## Q facts (read from the 0.12.5 sources, `vendor012/`)
+
+- **Dependencies** (cmake.deps/deps.txt, all SHA-256 checked): libuv **1.52.1**, luv 1.52.1-0,
+  Lua 5.1.5 (or LuaJIT), unibilium 2.1.2, lpeg 1.1.0 (now linked into nvim: `vim.lpeg`),
+  lua-compat-5.3 0.13, utf8proc 2.11.3, tree-sitter 0.26.13 + 6 parsers. Gone since 0.4.4:
+  msgpack-c (own encoder), libvterm and libtermkey (vendored into src/nvim). CMake asks
+  only libuv >= 1.28, but luv 1.52 calls 1.52's API, so libuv 1.52.1 it is.
+- **PUC Lua 5.1: still supported.** `PREFER_LUA` (src/nvim/CMakeLists.txt:62) does
+  `find_package(Lua 5.1 EXACT REQUIRED)`; `src/bit.c` supplies `bit`. Only the unit-test
+  harness needs LuaJIT.
+- **Threads: Neovim's core starts none** (the only uv_thread_create is os/pty_proc_win.c).
+  It uses two mutexes (log.c recursive, runtime.c plain), which nothreads.c keeps as real
+  state. Threads would come only from Lua: `vim.uv.new_thread` (UV_ENOSYS) and
+  `new_work`/async fs, which the no-threads work queue runs on the loop. No Neovim runtime
+  Lua calls new_thread or new_work (grep of runtime/lua). **The no-threads layer covers 0.12.**
+  libuv 1.52 adds thread API (affinity, names, priority, detach) that nothreads.c must answer
+  with UV_ENOSYS.
+- **The TUI is a separate process since 0.9.** `nvim` with a terminal runs as a UI client:
+  main.c:356 `ui_client_start_server` spawns `nvim --embed` (channel_job_start, stdio
+  pipes), and both processes run `nlua_init`, i.e. `vim._init_packages` -> `vim._core.shared`,
+  `editor`, `system`, `options` (130 KB of Lua source each, plus `vim._core.defaults` 39 KB in
+  the server). On AmigaOS, which has no copy-on-write and does not share the text of a
+  non-resident program, that is two loaded binaries, two Lua heaps, and the Lua start-up paid
+  twice, plus a second LoadSeg of a multi-MB file at every start.
+- **One process is possible without touching the UI code**: the server already talks to every
+  UI, the built-in TUI included, as a remote UI over a msgpack channel, and the client decodes
+  `redraw` straight into the TUI (msgpack_rpc/channel.c:502). A loopback channel in one
+  process: a socketpair, the server's end as a UI channel (what `--embed` makes of stdio),
+  the client's end as `ui_client_channel_id`, both on main_loop, `tui_start` + `ui_client_attach`
+  without `ui_client_run`'s private loop. ~20 places test `ui_client_channel_id` to mean "this
+  process is only a client" (log.c, memory.c, ui.c x3, channel.c, event/proc.c, ...): they get an
+  "in-process" flag. Cost: the msgpack encode + decode of each redraw, which two processes pay too.
+- **Tree-sitter needs dlopen**: lua/treesitter.c:138 loads parsers with uv_dlopen/uv_dlsym of
+  `parser/<lang>.so` found on 'runtimepath'. ftplugin/help.lua, lua.lua, markdown.lua and
+  query.lua call `vim.treesitter.start()`, so opening :help needs the vimdoc parser.
+- **Lua bytecode**: `COMPILE_LUA` (default ON) has the HOST Lua `string.dump` the embedded
+  modules; PUC Lua 5.1 bytecode carries the dumping machine's endianness and sizes, so a host
+  dump will not load on m68k ("bad header").
+- **Generators run in `nlua0`**, a Lua module built from Neovim's sources; for a cross build
+  CMake takes a host-built one (`NLUA0_HOST_PRG`, src/nvim/CMakeLists.txt:533) and a host Lua
+  that can load it (`LUA_GEN_PRG`): the host LuaJIT is x86_64, the host nlua0 arm64, so the
+  generator Lua is a host PUC Lua 5.1 built arm64 from vendor/lua.
+- Parser sources: c 3.7 MB, vim 4.5 MB, markdown 2.0 + inline 2.2 MB, vimdoc 0.5 MB,
+  lua 0.35 MB, query 0.1 MB (parser.c). Their compiled tables dominate any static link.
+
+## Q decisions
+
+- **Q-D1 Process model: one process on AmigaOS** (loopback channel, above), as the default
+  for `nvim` in a terminal; `--embed` and `--remote-ui` keep working as upstream. Order: first
+  the upstream two-process start (no UI patches; uv_spawn+socketpair stdio is proven on the
+  rig by system()), so the port has a working baseline; then the loopback, measured against
+  it (memory: AvailMem before/after; start time). Two processes stay selectable
+  (`NVIM_AMIGA_TWO_PROCESS=1`) until the loopback has passed the TUI tests.
+- **Q-D2 libuv 1.52.1 with the same backend**: re-apply the 1.30 port (nothreads.c, the
+  synchronous work queue, posix-poll, vfork spawn, amiga.c/amiga-os.c, tty once-per-readiness,
+  dl.c), plus 1.52's new platform calls; `uv_random` from timer.device E-clock jitter is NOT a
+  CSPRNG -> UV_ENOSYS unless ixemul grows a /dev/urandom (request R5).
+- **Q-D3 PUC Lua 5.1.5** (same as 0.4.4). COMPILE_LUA OFF first (sources embedded, compiled
+  at start); then a host "cross-dump" Lua 5.1 (ldump.c writing big-endian, 4-byte int/size_t,
+  8-byte double) so the embedded modules ship as m68k bytecode -- the start-up item.
+- **Q-D4 Tree-sitter parsers linked statically; dlopen served from a table**: libuv's AmigaOS
+  dl.c gets a static library registry (`uv_amiga_static_lib(name, symbols)`); uv_dlopen of a
+  path whose file name is registered (`vimdoc.so`) succeeds, uv_dlsym returns the linked
+  `tree_sitter_vimdoc`. The runtime ships empty `parser/<lang>.so` markers so Neovim's own
+  search finds them. No Lua or treesitter.c change. Linked: vimdoc, lua, query, markdown,
+  markdown_inline (what the bundled ftplugins start); c and vim behind a build option until
+  the size is measured. tree-sitter's atomic refcounts get a no-atomics path (one thread).
+- **Q-D5 Separate tree and Makefile** (`vendor012/`, `Makefile.v012`, `build/v012/`), shared
+  `amiga/compat/`, shared tools. 0.4.4 keeps building.
+- **Q-D6 Host first**: Neovim 0.12.5 for this Mac on the no-threads libuv 1.52 (as D-10),
+  tui_drive.py against it, then the m68k cross build; the host build also gives nlua0 and the
+  runtime install.
+
+## Q checklist (0 of 17)
+
+- [ ] Q1 host PUC Lua 5.1 (arm64) as generator Lua (`build/v012/host/lua51`)
+- [ ] Q2 libuv 1.52.1 backend ported (patches of 802f46c + 0c7e217), uvsmoke 1.52 on the host
+- [ ] Q3 libuv 1.52 own suite on the host, failures accounted for
+- [ ] Q4 host deps: luv 1.52, lpeg 1.1.0, unibilium 2.1.2, utf8proc, tree-sitter + parsers
+- [ ] Q5 host nvim 0.12.5 (PREFER_LUA, no-threads libuv) builds; --version, headless
+- [ ] Q6 host: tui_drive.py passes against 0.12.5 (two processes, upstream)
+- [ ] Q7 static parser registry in libuv dl.c + markers; `:help` highlights through vimdoc (host proof with a static build)
+- [ ] Q8 m68k deps cross-built (libuv 1.52, luv, lpeg, unibilium, utf8proc, tree-sitter, parsers)
+- [ ] Q9 m68k nvim 0.12.5 links (NLUA0_HOST_PRG, COMPILE_LUA OFF); size recorded, with and without c/vim parsers
+- [ ] Q10 dist tree for 0.12.5 (`make -f Makefile.v012 dist`)
+- [ ] Q11 rig: --version, headless, system(), TUI two-process (main session)
+- [ ] Q12 loopback single process (Q-D1), host tui_drive.py, then rig; memory and start time vs Q11
+- [ ] Q13 cross-dump Lua: embedded modules as m68k bytecode; start time vs Q12
+- [ ] Q14 user config packaging (section U) on the host
+- [ ] Q15 rig: the friend's config starts, lualine + neo-tree + bufexplorer work
+- [ ] Q16 :terminal on PTY: in 0.12 (pty_proc_unix.c, same vfork spawn as D9)
+- [ ] Q17 Q2 of the vtcon plan: 0.12.5's tui_spec through the engine
+
+## U. A real user config: github.com/tomviljo/dotfiles (c36d479, 2025-11-28)
+
+What it is: `nvim/init.vim` (Vimscript options, autocmds, mappings, vim-plug, a `lua << END`
+block configuring lualine and neo-tree), `nvim/colors/vanilla-toms.vim` (cterm colours:
+`set notermguicolors`, the 256-colour palette UP-Term draws exactly). Plugins: nvim-web-devicons,
+plenary.nvim, nui.nvim, lualine.nvim, neo-tree.nvim, bufexplorer, coq_nvim + coq.artifacts +
+coq.thirdparty. Ends with `source ~/.config/nvim/init-local.vim` (machine-local, not in the repo).
+
+Plan:
+- **Plugins are installed on the host, not on the Amiga.** vim-plug's `:PlugInstall` runs
+  `git clone` (and its bootstrap `curl`); neither exists for ixemul here. `tools/user-config.sh
+  <dotfiles>` runs the host nvim 0.12.5 headless with private XDG dirs: copies init.vim and
+  colors/, fetches plug.vim, `+PlugInstall +qa`, removes `.git` dirs, writes
+  `build/v012/userconf/{config,data}` laid out as `$HOME/.config/nvim` and
+  `$HOME/.local/share/nvim` (vim-plug's `plugged/`), plus an empty `init-local.vim`. That tree is
+  copied to the Amiga's $HOME. At start vim-plug only adds the plugged directories to
+  'runtimepath': no git needed. `:PlugInstall`/`:PlugUpdate` on the Amiga fail with vim-plug's
+  own "git not found" message; updating = rerun the script and copy again.
+- **coq_nvim cannot run**: it is a Python 3.8+ program (venv, SQLite) driven over RPC, and
+  there is no Python 3 for AmigaOS 3.x/68k here. It does nothing until `:COQnow`
+  (auto_start is off in this config), so loading it should be harmless -- to be checked on the
+  host with python3 hidden from PATH. **Owner/friend decision**: keep the config unchanged (coq
+  inert) or replace coq with 0.12's built-in insert completion (`'autocomplete'`).
+- **Speed risk**: lualine redraws the status line and tabline from timers in Lua; on a 68020
+  under PUC Lua that may cost visibly. Measure on the rig (Q15) before changing anything.
+- **Nerd Font glyphs**: nvim-web-devicons, lualine (`icons_enabled = true`) and neo-tree draw
+  file-type and UI icons from the Unicode Private Use Area (U+E000-U+F8FF; nf-md icons at
+  U+F0001-U+F1AF0). UP-Term's renderer maps code points its font lacks to a replacement glyph,
+  so these show as replacements. `listchars` uses U+2500 (box drawing), which UP-Term draws.
+  **Request V1 for vtcon (not done here)**: a bitmap font plane with the Nerd Font glyphs
+  nvim-web-devicons, lualine and neo-tree use (their icon tables name the code points), in
+  UP-Term's cell size, single cell wide as Neovim measures them (utf8proc: width 1 for PUA).
+- Other things in the config that need tools outside Neovim: `gr` mapping runs `grep -rn`
+  (not in UP-Term's coreutils 5.2.1 set), `gb` needs vim-fugitive and `gd`/`gc` vim-go (not in
+  the plugin list: the mappings fail only when pressed).
+
+## R (additions for 0.12)
+
+- **R5** `/dev/urandom` (or getentropy) in ixemul: libuv's uv_random and anything seeding from
+  it; until then UV_ENOSYS.
