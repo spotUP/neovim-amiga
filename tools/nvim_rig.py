@@ -48,11 +48,35 @@ autocmd VimLeave * call writefile(['bye'], 'RAM:nvbye.txt')
 
 RIG2_VIM = r"""" nvim_rig.py: the parser check, sourced from the typed :source line
 lua << END
-local ok, r = pcall(vim.treesitter.language.add, 'vimdoc')
-local hok, herr = pcall(vim.cmd, 'help')
 local f = io.open('RAM:nvts.txt', 'w')
+local function add() return vim.treesitter.language.add('vimdoc') end
+local ok, r = pcall(add)
+local hok, herr = pcall(vim.cmd, 'help')
 f:write(string.format('add=%s %s\nhelp=%s %s ft=%s\n', tostring(ok), tostring(r),
   tostring(hok), tostring(herr), vim.bo.filetype))
+-- how runtime Lua modules are found (vim._load_package), step by step
+local rt = vim.env.VIMRUNTIME or '?'
+local mod = rt .. '/lua/vim/treesitter.lua'
+local function try(what, fn)
+  local fok, v = pcall(fn)
+  f:write(what .. ' = ' .. (fok and vim.inspect(v) or ('ERROR ' .. tostring(v))) .. '\n')
+end
+try('VIMRUNTIME', function() return rt end)
+try('rtp', function() return vim.o.runtimepath end)
+try('get_runtime', function()
+  return vim.api.nvim__get_runtime({ 'lua/vim/treesitter.lua' }, false, { is_lua = true })
+end)
+try('get_runtime_file', function() return vim.api.nvim_get_runtime_file('lua/vim/treesitter.lua', false) end)
+try('isdirectory(rt/lua)', function() return vim.fn.isdirectory(rt .. '/lua') end)
+try('isdirectory(rt/lua/)', function() return vim.fn.isdirectory(rt .. '/lua/') end)
+try('filereadable(mod)', function() return vim.fn.filereadable(mod) end)
+try('fs_access(mod)', function() return { vim.uv.fs_access(mod, 'R') } end)
+try('fs_stat(mod).mode', function() local st = vim.uv.fs_stat(mod) return st and st.mode end)
+try('fs_lstat(rt).type', function() local st = vim.uv.fs_lstat(rt) return st and st.type end)
+try('fs_lstat(rt/lua).type', function() local st = vim.uv.fs_lstat(rt .. '/lua') return st and st.type end)
+try('fs_stat(rt/lua/).type', function() local st = vim.uv.fs_stat(rt .. '/lua/') return st and st.type end)
+try('glob(rt)', function() return vim.fn.glob(rt, true, true) end)
+try('runtime_inspect', function() return vim.api.nvim__runtime_inspect() end)
 f:close()
 END
 helpclose

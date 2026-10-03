@@ -326,6 +326,23 @@ tcp_try_write_error (macOS answers ECONNRESET where the test wants EPIPE: host O
         :q closed the help, the last :q quit nvim). Not reproduced as an input bug on the
         host (rig steps simulated in a pty: all files written). The rig now waits on
         files nvim writes (VimEnter, rig2.vim, VimLeave) and prints each.
+      Second run (2026-10-03, fresh dist): 8 of 9. E1568 gone and the typing test passes.
+      - Measured on the 68020 (RAM:nvtrace.txt): ui_send queued 8752.3 ms, vim.wait(1500)
+        begins 8770.8, TUI writes the query 8962.6, TUI reads the 28-byte answer 9088.7,
+        server termresponses 9390.7 and 9408.8, wait ends (condition true) 9420.9: 650 ms
+        in the wait, of which the terminal is at most 126 ms. The 1500 ms bound is
+        justified. Typed keys arrive 1-3 bytes per read, ~30 ms apart. AvailMem after
+        quit 72,643,680.
+      - Open: the parser check. `require('vim.treesitter')` reports "module not found"
+        (no "bad header"), so vim._load_package's nvim__get_runtime found no
+        lua/vim/treesitter.lua. On the host the same nvim against the shipped dist tree
+        finds it (fails later with "bad header", as it must for m68k bytecode), and the
+        rig copy holds the file: the search fails only on the Amiga. Suspects, all on the
+        Amiga's file calls: the runtime dir missing from the search path (addfile:
+        uv_fs_lstat), has_lua false (os_isdir of ".../lua/"), or os_file_is_readable
+        (ixemul access() from stat mode bits). rig2.vim now prints each step
+        (get_runtime, runtime_inspect, isdirectory, filereadable, fs_access, fs_stat,
+        fs_lstat, glob) to RAM:nvts.txt; the next run names the failing call.
 - [x] Q12 one process: loopback channel, default on AmigaOS -- ef057de; proof: host tui_drive.py
       9 of 9 in both modes incl. the process-model sentinel; host RSS 9.5 MB vs 16.2 MB.
       Rig numbers (AvailMem) come from Q11.
