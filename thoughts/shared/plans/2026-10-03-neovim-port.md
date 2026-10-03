@@ -311,6 +311,21 @@ tcp_try_write_error (macOS answers ECONNRESET where the test wants EPIPE: host O
       (0.4.4: 3.0 MB stripped.)
 - [x] Q10 dist (`make -f Makefile.v012 dist`): build/v012/dist, 33 MB with runtime -- 4b41677
 - [ ] Q11 rig: `tools/nvim_rig.py --v012 --tui` (main session)
+      First run (2026-10-03): 6 of 8. Fixes 3a887e2 (rig) + de1cc33 (nvim), rerun pending:
+      - E1568 at start: CPU, not the terminal. UP-Term answers OSC 11 + DSR in 1.4-2.1 ms
+        (main session, raw mode); Nvim's own work in the 100 ms window is 107 us on the host
+        (NVIM_TERMTRACE + tests/termresp_drive.py; an answer 98 ms late still passes, 120 ms
+        fails), and host start ~20 ms vs rig ~37 s puts it near 200 ms on the 68020.
+        defaults.lua waits up to 1500 ms when has('amiga') (new feature name, as Vim); the
+        wait ends at the answer. To confirm on the rig: RAM:nvtrace.txt, "vim.wait(1500)
+        begins" to "vim.wait ends: condition true" > 100 ms, with "tui: read" close behind
+        "tui: writes ui_send".
+      - FAIL 7 (no detail) and FAIL 8 (no file, nvim seen to quit): the rig typed :help,
+        the :lua check, the text and :q after fixed sleeps; on the 68020 nvim was still
+        busy, the checks read files not yet written, and the queued keys ran later (the
+        :q closed the help, the last :q quit nvim). Not reproduced as an input bug on the
+        host (rig steps simulated in a pty: all files written). The rig now waits on
+        files nvim writes (VimEnter, rig2.vim, VimLeave) and prints each.
 - [x] Q12 one process: loopback channel, default on AmigaOS -- ef057de; proof: host tui_drive.py
       9 of 9 in both modes incl. the process-model sentinel; host RSS 9.5 MB vs 16.2 MB.
       Rig numbers (AvailMem) come from Q11.
