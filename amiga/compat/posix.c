@@ -6,9 +6,12 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <errno.h>
+#include <grp.h>
+#include <ifaddrs.h>
 #include <inttypes.h>
 #include <net/if.h>
 #include <pwd.h>
+#include <sched.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -245,4 +248,108 @@ uintmax_t
 strtoumax(const char *s, char **end, int base)
 {
 	return strtouq(s, end, base);
+}
+
+static int
+copy_gr(const struct group *g, struct group *gr, char *buf, size_t len,
+    struct group **res)
+{
+	size_t need, n, i, nmem = 0;
+	char **mem;
+
+	*res = NULL;
+	need = strlen(g->gr_name) + 1 + strlen(g->gr_passwd ? g->gr_passwd : "") + 1;
+	while (g->gr_mem && g->gr_mem[nmem])
+		need += strlen(g->gr_mem[nmem++]) + 1;
+	need += (nmem + 1) * sizeof(char *) + sizeof(char *);	/* + alignment */
+	if (need > len)
+		return ERANGE;
+	*gr = *g;
+	/* the pointer array first, aligned */
+	mem = (char **)(((uintptr_t)buf + sizeof(char *) - 1) & ~(uintptr_t)(sizeof(char *) - 1));
+	buf = (char *)(mem + nmem + 1);
+	for (i = 0; i < nmem; i++) {
+		n = strlen(g->gr_mem[i]) + 1;
+		memcpy(buf, g->gr_mem[i], n);
+		mem[i] = buf;
+		buf += n;
+	}
+	mem[nmem] = NULL;
+	gr->gr_mem = mem;
+	n = strlen(g->gr_name) + 1;
+	memcpy(buf, g->gr_name, n);
+	gr->gr_name = buf;
+	buf += n;
+	n = strlen(g->gr_passwd ? g->gr_passwd : "") + 1;
+	memcpy(buf, g->gr_passwd ? g->gr_passwd : "", n);
+	gr->gr_passwd = buf;
+	*res = gr;
+	return 0;
+}
+
+int
+getgrgid_r(gid_t gid, struct group *gr, char *buf, size_t len,
+    struct group **res)
+{
+	struct group *g;
+
+	errno = 0;
+	if ((g = getgrgid(gid)) == NULL) {
+		*res = NULL;
+		return errno;	/* 0: no such group */
+	}
+	return copy_gr(g, gr, buf, len, res);
+}
+
+int
+getgrnam_r(const char *name, struct group *gr, char *buf, size_t len,
+    struct group **res)
+{
+	struct group *g;
+
+	errno = 0;
+	if ((g = getgrnam(name)) == NULL) {
+		*res = NULL;
+		return errno;
+	}
+	return copy_gr(g, gr, buf, len, res);
+}
+
+int
+getifaddrs(struct ifaddrs **ifap)
+{
+	*ifap = NULL;
+	errno = ENOSYS;
+	return -1;
+}
+
+void
+freeifaddrs(struct ifaddrs *ifa)
+{
+	(void)ifa;
+}
+
+/* for amiga-os.c, which cannot include ixemul's headers */
+int
+__amiga_realtime(struct timespec *ts)
+{
+	struct timeval tv;
+
+	if (gettimeofday(&tv, NULL) != 0)
+		return -1;
+	ts->tv_sec = tv.tv_sec;
+	ts->tv_nsec = tv.tv_usec * 1000L;
+	return 0;
+}
+
+int *
+__amiga_errno(void)
+{
+	return &errno;
+}
+
+int
+sched_yield(void)
+{
+	return 0;
 }

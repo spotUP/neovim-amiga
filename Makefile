@@ -26,11 +26,17 @@ libs: $(B)/libamigacompat.a $(B)/libuv.a $(B)/liblua.a $(B)/lua51 $(B)/libmsgpac
 COMPAT_INC = -Iamiga/compat/include
 COMPAT_HDRS = $(wildcard amiga/compat/include/*.h amiga/compat/include/*/*.h)
 COMPAT_OBJS = $(B)/compat/netdb.o $(B)/compat/posix.o $(B)/compat/eprintf.o \
-              $(B)/compat/math.o
+              $(B)/compat/math.o $(B)/compat/amiga-os.o
 
 $(B)/compat/%.o: amiga/compat/%.c $(COMPAT_HDRS)
 	@mkdir -p $(dir $@)
 	$(AGCC) $(ACFLAGS) $(COMPAT_INC) -c -o $@ $<
+
+# NDK headers only, no ixemul ones (see the file's comment); the atomic
+# builtins are defined, not called, so gcc's built-in declarations are off
+$(B)/compat/amiga-os.o: amiga/compat/amiga-os.c
+	@mkdir -p $(dir $@)
+	$(AGCC) $(ACFLAGS) -fno-builtin -c -o $@ $<
 
 $(B)/libamigacompat.a: $(COMPAT_OBJS)
 	rm -f $@

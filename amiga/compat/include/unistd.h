@@ -11,6 +11,10 @@
 #ifndef _SC_GETPW_R_SIZE_MAX
 #define _SC_GETPW_R_SIZE_MAX	0x7f01
 #endif
+#ifndef _SC_NPROCESSORS_ONLN	/* sysconf() answers -1: callers assume one CPU */
+#define _SC_NPROCESSORS_ONLN	0x7f03
+#define _SC_NPROCESSORS_CONF	0x7f04
+#endif
 #ifndef _SC_GETGR_R_SIZE_MAX
 #define _SC_GETGR_R_SIZE_MAX	0x7f02
 #endif
