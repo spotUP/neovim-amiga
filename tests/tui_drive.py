@@ -7,12 +7,12 @@ screen). Used on the host against build/host/nvim (the UV_NO_THREADS build:
 TUI on the main loop). Prints "ok <name>" / "FAIL <name>: why", exits 0 when
 all pass.
 
-  tests/tui_drive.py [path/to/nvim]
+  tests/tui_drive.py [path/to/nvim]     (TUI_RUNTIME=<runtime dir> for 0.12.5)
 """
 import os, pty, select, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-NVIM = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'build/host/nvim/bin/nvim')
+NVIM = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(ROOT, 'build/host/nvim/bin/nvim')  # the test chdirs
 fails = 0
 
 
@@ -42,7 +42,7 @@ def read_for(fd, secs):
 def session(keys_steps, env_extra=None, args=()):
     tmp = tempfile.mkdtemp()
     env = dict(os.environ, TERM='xterm-256color',
-               VIMRUNTIME=os.path.join(ROOT, 'vendor/neovim/runtime'),
+               VIMRUNTIME=os.environ.get('TUI_RUNTIME', os.path.join(ROOT, 'vendor/neovim/runtime')),
                XDG_DATA_HOME=tmp, XDG_CONFIG_HOME=tmp, HOME=tmp)
     env.update(env_extra or {})
     pid, fd = pty.fork()

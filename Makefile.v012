@@ -22,7 +22,8 @@ COMPAT_LIB  = build/m68k/libamigacompat.a
 
 .PHONY: all libs host-uvsmoke clean
 all: libs
-libs: $(B)/libuv.a
+libs: $(B)/libuv.a $(B)/liblua.a $(B)/libluv.a $(B)/liblpeg.a \
+      $(B)/libunibilium.a $(B)/libutf8proc.a $(B)/libtree-sitter.a $(B)/parsers
 
 $(COMPAT_LIB): $(wildcard amiga/compat/*.c) $(COMPAT_HDRS)
 	$(MAKE) build/m68k/libamigacompat.a
@@ -96,3 +97,141 @@ $(B)/compat_probe: tests/compat_probe.c $(COMPAT_LIB)
 	@mkdir -p $(B)
 	$(AGCC) $(ACFLAGS) $(COMPAT_INC) -c -o $(B)/compat_probe.o tests/compat_probe.c
 	$(AGCC) $(ALDFLAGS) -o $@ $(B)/compat_probe.o $(COMPAT_LIB) -lixcompat
+
+# ---- the other dependencies: one set of rules for m68k and the host --------
+# (host: `make -f Makefile.v012 host-deps`, which reruns these with the host
+# compiler into build/v012/hostdeps). DCFLAGS carries the target's flags.
+DCC     ?= $(AGCC)
+DAR     ?= $(AAR)
+DCFLAGS ?= $(ACFLAGS) $(COMPAT_INC)
+
+LUA     = vendor/lua/src
+LUA_SRCS = lapi.c lcode.c ldebug.c ldo.c ldump.c lfunc.c lgc.c llex.c lmem.c \
+           lobject.c lopcodes.c lparser.c lstate.c lstring.c ltable.c ltm.c \
+           lundump.c lvm.c lzio.c lauxlib.c lbaselib.c ldblib.c liolib.c \
+           lmathlib.c loslib.c ltablib.c lstrlib.c loadlib.c linit.c
+LUA_DEFS ?= -DLUA_USE_POSIX
+
+$(B)/lua/%.o: $(LUA)/%.c $(wildcard $(LUA)/*.h)
+	@mkdir -p $(dir $@)
+	$(DCC) $(DCFLAGS) $(LUA_DEFS) -c -o $@ $<
+
+$(B)/liblua.a: $(addprefix $(B)/lua/,$(LUA_SRCS:.c=.o))
+	rm -f $@
+	$(DAR) rcs $@ $^
+
+# luv 1.52.1-0 (one translation unit) + lua-compat-5.3 0.13
+LUV     = $(V)/luv
+LC53    = $(V)/lua-compat-5.3
+$(B)/luv/luv.o: $(wildcard $(LUV)/src/*.c $(LUV)/src/*.h) $(UV_HDRS)
+	@mkdir -p $(dir $@)
+	$(DCC) $(DCFLAGS) -I$(UV)/include -I$(LUA) -I$(LC53)/c-api \
+	  -DLUA_COMPAT_APIINTCASTS -c -o $@ $(LUV)/src/luv.c
+
+$(B)/luv/compat-5.3.o: $(LC53)/c-api/compat-5.3.c
+	@mkdir -p $(dir $@)
+	$(DCC) $(DCFLAGS) -I$(LUA) -I$(LC53)/c-api -c -o $@ $<
+
+$(B)/libluv.a: $(B)/luv/luv.o $(B)/luv/compat-5.3.o
+	rm -f $@
+	$(DAR) rcs $@ $^
+
+# lpeg 1.1.0 (linked into nvim since 0.10: vim.lpeg)
+LPEG    = $(V)/lpeg
+LPEG_SRCS = lpcap.c lpcode.c lpcset.c lpprint.c lptree.c lpvm.c
+$(B)/lpeg/%.o: $(LPEG)/%.c $(wildcard $(LPEG)/*.h)
+	@mkdir -p $(dir $@)
+	$(DCC) $(DCFLAGS) -I$(LUA) -c -o $@ $<
+
+$(B)/liblpeg.a: $(addprefix $(B)/lpeg/,$(LPEG_SRCS:.c=.o))
+	rm -f $@
+	$(DAR) rcs $@ $^
+
+# unibilium 2.1.2 (terminfo dirs as in the 0.4.4 build)
+UB      = $(V)/unibilium
+UB_DEFS = -DTERMINFO_DIRS='"/usr/share/terminfo:/usr/lib/terminfo:/gg/share/terminfo"'
+$(B)/unibilium/%.o: $(UB)/%.c $(UB)/unibilium.h
+	@mkdir -p $(dir $@)
+	$(DCC) $(DCFLAGS) $(UB_DEFS) -I$(UB) -c -o $@ $<
+
+$(B)/libunibilium.a: $(addprefix $(B)/unibilium/,unibilium.o uninames.o uniutil.o)
+	rm -f $@
+	$(DAR) rcs $@ $^
+
+# utf8proc 2.11.3 (static: UTF8PROC_STATIC)
+U8P     = $(V)/utf8proc
+$(B)/utf8proc/utf8proc.o: $(U8P)/utf8proc.c $(U8P)/utf8proc_data.c $(U8P)/utf8proc.h
+	@mkdir -p $(dir $@)
+	$(DCC) $(DCFLAGS) -DUTF8PROC_STATIC -I$(U8P) -c -o $@ $<
+
+$(B)/libutf8proc.a: $(B)/utf8proc/utf8proc.o
+	rm -f $@
+	$(DAR) rcs $@ $^
+
+# tree-sitter 0.26.13 (lib.c amalgamation; its atomics are libamigacompat's
+# builtins on the Amiga)
+TS      = $(V)/tree-sitter/lib
+# its portable/endian.h knows no AmigaOS: libamigacompat's <endian.h>
+TS_DEFS ?= -DHAVE_ENDIAN_H
+$(B)/tree-sitter/lib.o: $(wildcard $(TS)/src/*.c $(TS)/src/*.h $(TS)/include/tree_sitter/*.h)
+	@mkdir -p $(dir $@)
+	$(DCC) $(DCFLAGS) $(TS_DEFS) -std=gnu99 -I$(TS)/include -I$(TS)/src -c -o $@ $(TS)/src/lib.c
+
+$(B)/libtree-sitter.a: $(B)/tree-sitter/lib.o
+	rm -f $@
+	$(DAR) rcs $@ $^
+
+# the bundled parsers, one static library each (ledger Q-D4)
+PARSERS = c lua vim vimdoc query markdown markdown_inline
+P_DIR_c = $(V)/ts-c/src
+P_DIR_lua = $(V)/ts-lua/src
+P_DIR_vim = $(V)/ts-vim/src
+P_DIR_vimdoc = $(V)/ts-vimdoc/src
+P_DIR_query = $(V)/ts-query/src
+P_DIR_markdown = $(V)/ts-markdown/tree-sitter-markdown/src
+P_DIR_markdown_inline = $(V)/ts-markdown/tree-sitter-markdown-inline/src
+
+define parser_rule
+$(B)/parser/$(1)/parser.o: $$(P_DIR_$(1))/parser.c
+	@mkdir -p $$(dir $$@)
+	$$(DCC) $$(DCFLAGS) -std=gnu99 -I$$(P_DIR_$(1)) -c -o $$@ $$<
+$(B)/parser/$(1)/scanner.o: $$(P_DIR_$(1))/scanner.c
+	@mkdir -p $$(dir $$@)
+	$$(DCC) $$(DCFLAGS) -std=gnu99 -I$$(P_DIR_$(1)) -c -o $$@ $$<
+$(B)/libtsparser_$(1).a: $(B)/parser/$(1)/parser.o $$(if $$(wildcard $$(P_DIR_$(1))/scanner.c),$(B)/parser/$(1)/scanner.o)
+	rm -f $$@
+	$$(DAR) rcs $$@ $$^
+endef
+$(foreach p,$(PARSERS),$(eval $(call parser_rule,$(p))))
+
+$(B)/parsers: $(foreach p,$(PARSERS),$(B)/libtsparser_$(p).a)
+	@touch $@
+
+# ---- host copies of the dependencies (for the host proof build of 0.12.5) --
+HD = build/v012/hostdeps
+HD_MAKE = $(MAKE) -f Makefile.v012 B=$(HD) DCC=$(HOSTCC) DAR=ar \
+          DCFLAGS='-O1 -g -w -DUV_NO_THREADS -DUV_POSIX_POLL' \
+          LUA_DEFS='-DLUA_USE_POSIX -DLUA_USE_DLOPEN' TS_DEFS=
+host-deps: $(H)/libuv.a
+	mkdir -p $(HD) && cp $(H)/libuv.a $(HD)/libuv.a
+	$(HD_MAKE) -o $(HD)/libuv.a $(HD)/liblua.a $(HD)/libluv.a $(HD)/liblpeg.a \
+	  $(HD)/libunibilium.a $(HD)/libutf8proc.a $(HD)/libtree-sitter.a $(HD)/parsers
+
+# the host Lua 5.1 that runs Neovim's generators: arm64, like the host-built
+# nlua0 module it must load (the host LuaJIT is x86_64)
+$(H)/lua51: $(HD)/liblua.a
+	$(HOSTCC) -O1 -g -w -DLUA_USE_POSIX -DLUA_USE_DLOPEN -o $@ $(LUA)/lua.c $(HD)/liblua.a \
+	  -Wl,-export_dynamic
+
+# ---- sysroot: the dependencies as Neovim 0.12's CMake finds them ----------
+SR = $(B)/sysroot
+sysroot:
+	rm -rf $(SR) && mkdir -p $(SR)/include/luv $(SR)/include/uv $(SR)/include/tree_sitter $(SR)/lib
+	cp $(UV)/include/*.h $(SR)/include/ && cp $(UV)/include/uv/*.h $(SR)/include/uv/
+	cp $(LUA)/lua.h $(LUA)/luaconf.h $(LUA)/lualib.h $(LUA)/lauxlib.h $(SR)/include/
+	cp $(LUV)/src/*.h $(SR)/include/luv/
+	cp $(UB)/unibilium.h $(U8P)/utf8proc.h $(SR)/include/
+	cp $(TS)/include/tree_sitter/api.h $(SR)/include/tree_sitter/
+	cp $(B)/libuv.a $(B)/liblua.a $(B)/libluv.a $(B)/liblpeg.a $(B)/libunibilium.a \
+	   $(B)/libutf8proc.a $(B)/libtree-sitter.a $(SR)/lib/
+	cp $(B)/libtsparser_*.a $(SR)/lib/

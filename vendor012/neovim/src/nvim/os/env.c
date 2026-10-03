@@ -41,6 +41,7 @@
 #endif
 
 #ifdef __APPLE__
+# include <mach/mach_init.h>  // mach_task_self (otherwise only via pthread.h)
 # include <mach/task.h>
 #endif
 

@@ -24,6 +24,12 @@
 
 #include "uv-common.h"
 
+#if defined(UV_NO_THREADS)
+/* one thread: its signal mask is the process's */
+# undef pthread_sigmask
+# define pthread_sigmask(how, set, oset) sigprocmask((how), (set), (oset))
+#endif
+
 #include <assert.h>
 #include <limits.h> /* _POSIX_PATH_MAX, PATH_MAX */
 #include <stdint.h>

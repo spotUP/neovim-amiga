@@ -19,7 +19,7 @@ typedef struct { unsigned int count; } uv_sem_t;
 typedef struct { int unused; } uv_cond_t;
 typedef struct { void* value; } uv_key_t;
 
-/* one thread: its signal mask is the process's */
-#define pthread_sigmask(how, set, oset) sigprocmask((how), (set), (oset))
+/* (pthread_sigmask -> sigprocmask is src/unix/internal.h's: a public
+   header must not rename a libc function for its users) */
 
 #endif /* UV_NOTHREADS_H */
