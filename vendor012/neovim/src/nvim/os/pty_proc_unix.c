@@ -11,7 +11,11 @@
 #include <uv.h>
 
 // forkpty is not in POSIX, so headers are platform-specific
-#if defined(__FreeBSD__) || defined(__DragonFly__)
+#if defined(__amigaos__)
+// AmigaOS (ixemul): no forkpty and no fork. BSD ptys (/dev/ptyXY,
+// /dev/ttyXY) on UP-Term's PTY: handler, and vfork (amiga_pty_spawn).
+# include <unistd.h>
+#elif defined(__FreeBSD__) || defined(__DragonFly__)
 # include <libutil.h>
 // TODO(bfredl): this is available on darwin, but there is an issue with cross-compile headers
 #elif defined(__APPLE__) && !defined(HAVE_FORKPTY)
@@ -43,6 +47,7 @@ int forkpty(int *, char *, const struct termios *, const struct winsize *);
 #include "nvim/event/proc.h"
 #include "nvim/log.h"
 #include "nvim/os/fs.h"
+#include "nvim/os/os.h"
 #include "nvim/os/os_defs.h"
 #include "nvim/os/pty_proc.h"
 #include "nvim/os/pty_proc_unix.h"
@@ -50,7 +55,7 @@ int forkpty(int *, char *, const struct termios *, const struct winsize *);
 
 #include "os/pty_proc_unix.c.generated.h"
 
-#if !defined(HAVE_FORKPTY) && !defined(__APPLE__)
+#if !defined(HAVE_FORKPTY) && !defined(__APPLE__) && !defined(__amigaos__)
 
 // this header defines STR, just as nvim.h, but it is defined as ('S'<<8),
 // to avoid #undef STR, #undef STR, #define STR ('S'<<8) just delay the
@@ -166,6 +171,99 @@ pid_t vim_forkpty(int *amaster, char *name, struct termios *termp, struct winsiz
 # define forkpty vim_forkpty
 #endif
 
+#ifdef __amigaos__
+/// A free pty pair: the master open read/write, the slave's name in
+/// ptyproc->tty_name. BSD names, as ixemul serves them from PTY: (the scan
+/// tmux-amiga uses).
+static int amiga_open_master(PtyProc *ptyproc)
+  FUNC_ATTR_NONNULL_ALL
+{
+  static const char c1[] = "pqrstu";
+  static const char c2[] = "0123456789abcdef";
+  char m[16];
+
+  for (int i = 0; c1[i] != '\0'; i++) {
+    for (int j = 0; c2[j] != '\0'; j++) {
+      snprintf(m, sizeof(m), "/dev/pty%c%c", c1[i], c2[j]);
+      int fd = open(m, O_RDWR);
+      if (fd == -1) {
+        continue;
+      }
+      snprintf(ptyproc->tty_name, sizeof(ptyproc->tty_name), "/dev/tty%c%c", c1[i], c2[j]);
+      return fd;
+    }
+  }
+  errno = EAGAIN;
+  return -1;
+}
+
+/// forkpty() + init_child() for AmigaOS: the master here, the child by
+/// vfork. Until its exec the child shares our data and heap, so everything
+/// it needs (program, environment, directory) is prepared here, and it only
+/// changes what is its own: session, descriptors, controlling tty and modes,
+/// signals, directory. Returns the child's pid (the master in *master) or -1.
+static int amiga_pty_spawn(PtyProc *ptyproc, const struct termios *termios, int *master)
+  FUNC_ATTR_NONNULL_ALL
+{
+  extern char **environ;
+  Proc *proc = (Proc *)ptyproc;
+  int mfd = amiga_open_master(ptyproc);
+  if (mfd < 0) {
+    return -1;
+  }
+  assert(proc->env);
+  char **env = tv_dict_to_env(proc->env);
+  char **saved = environ;
+  const char *prog = proc_get_exepath(proc);
+  const char *cwd = proc->cwd;
+  int maxfd = getdtablesize();
+
+  int pid = vfork();
+  if (pid == 0) {
+    setsid();
+    close(0);
+    close(1);
+    close(2);
+    if (open(ptyproc->tty_name, O_RDWR) != 0) {
+      _exit(122);
+    }
+    dup(0);
+    dup(0);
+# ifdef TIOCSCTTY
+    ioctl(0, TIOCSCTTY, (char *)0);
+# endif
+    tcsetpgrp(0, getpid());
+    tcsetattr(0, TCSANOW, termios);
+    ioctl(0, TIOCSWINSZ, &ptyproc->winsize);
+    for (int fd = 3; fd < maxfd; fd++) {
+      close(fd);  // the master among them
+    }
+    signal(SIGCHLD, SIG_DFL);
+    signal(SIGHUP, SIG_DFL);
+    signal(SIGINT, SIG_DFL);
+    signal(SIGQUIT, SIG_DFL);
+    signal(SIGTERM, SIG_DFL);
+    signal(SIGALRM, SIG_DFL);
+    if (cwd && chdir(cwd) != 0) {
+      _exit(122);
+    }
+    environ = env;
+    execvp(prog, proc->argv);
+    _exit(122);  // 122 is EXEC_FAILED in the Vim source.
+  }
+  int err = errno;
+  environ = saved;
+  os_free_fullenv(env);  // the exec copied it, or the child is gone
+  if (pid < 0) {
+    close(mfd);
+    errno = err;
+    return -1;
+  }
+  *master = mfd;
+  return pid;
+}
+#endif
+
 /// @returns zero on success, or negative error code
 int pty_proc_spawn(PtyProc *ptyproc)
   FUNC_ATTR_NONNULL_ALL
@@ -183,6 +281,14 @@ int pty_proc_spawn(PtyProc *ptyproc)
   ptyproc->winsize = (struct winsize){ ptyproc->height, ptyproc->width, 0, 0 };
   uv_disable_stdio_inheritance();
   int master;
+#ifdef __amigaos__
+  int pid = amiga_pty_spawn(ptyproc, &termios_default, &master);
+  if (pid < 0) {
+    status = -errno;
+    ELOG("pty spawn failed: %s", strerror(errno));
+    return status;
+  }
+#else
   int pid = forkpty(&master, NULL, &termios_default, &ptyproc->winsize);
 
   if (pid < 0) {
@@ -192,6 +298,7 @@ int pty_proc_spawn(PtyProc *ptyproc)
   } else if (pid == 0) {
     init_child(ptyproc);  // never returns
   }
+#endif
 
   // make sure the master file descriptor is non blocking
   int master_status_flags = fcntl(master, F_GETFL);
@@ -235,7 +342,11 @@ error:
 
 const char *pty_proc_tty_name(PtyProc *ptyproc)
 {
+#ifdef __amigaos__
+  return ptyproc->tty_name;
+#else
   return ptsname(ptyproc->tty_fd);
+#endif
 }
 
 void pty_proc_resize(PtyProc *ptyproc, uint16_t width, uint16_t height)
@@ -293,6 +404,7 @@ void pty_proc_teardown(Loop *loop)
   uv_signal_stop(&loop->children_watcher);
 }
 
+#ifndef __amigaos__
 static void init_child(PtyProc *ptyproc)
   FUNC_ATTR_NONNULL_ALL FUNC_ATTR_NORETURN
 {
@@ -328,6 +440,7 @@ static void init_child(PtyProc *ptyproc)
 
   _exit(122);  // 122 is EXEC_FAILED in the Vim source.
 }
+#endif
 
 static void init_termios(struct termios *termios) FUNC_ATTR_NONNULL_ALL
 {

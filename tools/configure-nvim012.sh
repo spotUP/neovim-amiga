@@ -12,7 +12,15 @@ if [ "${1:-}" = "--host" ]; then
 	shift
 	SR=$ROOT/build/v012/hostdeps/sysroot
 	OUT=$ROOT/build/v012/host/nvim
-	set -- -DCMAKE_C_FLAGS="-DUV_NO_THREADS -DUV_POSIX_POLL" "$@"
+	# the Amiga's static parsers and uv_dlopen (UV_STATIC_DL), same list
+	TS="vimdoc lua query markdown markdown_inline"
+	DEFS=""; LIBS=""
+	for p in $TS; do
+		DEFS="$DEFS -DNVIM_STATIC_TS_$(echo $p | tr a-z A-Z)"
+		LIBS="$LIBS -ltsparser_$p"
+	done
+	set -- -DCMAKE_C_FLAGS="-DUV_NO_THREADS -DUV_POSIX_POLL -DUV_STATIC_DL$DEFS" \
+	  -DCMAKE_EXE_LINKER_FLAGS="-L$SR/lib$LIBS" "$@"
 else
 	SR=$ROOT/build/v012/m68k/sysroot
 	OUT=$ROOT/build/v012/m68k/nvim

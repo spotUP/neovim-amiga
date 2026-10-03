@@ -11,6 +11,9 @@ typedef struct {
   uint16_t width, height;
   struct winsize winsize;
   int tty_fd;
+#ifdef __amigaos__
+  char tty_name[32];  ///< the slave's name (AmigaOS: no ptsname)
+#endif
 } PtyProc;
 
 #include "os/pty_proc_unix.h.generated.h"

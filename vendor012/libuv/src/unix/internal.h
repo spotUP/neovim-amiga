@@ -25,9 +25,9 @@
 #include "uv-common.h"
 
 #if defined(UV_NO_THREADS)
-/* one thread: its signal mask is the process's */
-# undef pthread_sigmask
-# define pthread_sigmask(how, set, oset) sigprocmask((how), (set), (oset))
+/* pthread_sigmask, which posix-poll.c, signal.c and process.c call: the
+   host's libc, or libamigacompat's one-thread <pthread.h> on the Amiga */
+# include <pthread.h>
 #endif
 
 #include <assert.h>

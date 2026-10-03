@@ -26,16 +26,61 @@
 #include <string.h>
 #include <locale.h>
 
-#if defined(__amigaos__)
+#if defined(__amigaos__) || defined(UV_STATIC_DL)
 /* ixemul.library has no dynamic linker (an AmigaOS shared library is not
- * an ELF object with symbols): uv_dlopen fails with a message saying so. */
-static const char uv__no_dl[] = "dynamic loading is not supported on AmigaOS";
+ * an object with a symbol table). Instead the program registers the
+ * "libraries" it links statically (uv_static_dl_register, uv/nothreads.h):
+ * uv_dlopen of a path whose file name is registered ("vimdoc.so") opens
+ * that entry, and uv_dlsym looks the name up in its table. Any other path
+ * fails with a message saying why. UV_STATIC_DL selects this on a host, to
+ * test the same code. */
+static const uv_static_lib_t* uv__static_libs;
+
+void uv_static_dl_register(const uv_static_lib_t* libs) {
+  uv__static_libs = libs;
+}
+
+
+static const char* uv__basename(const char* path) {
+  const char* p;
+  const char* base = path;
+
+  for (p = path; *p != '\0'; p++)
+    if (*p == '/' || *p == ':')
+      base = p + 1;
+  return base;
+}
+
+
+static int uv__dl_fail(uv_lib_t* lib, const char* what, const char* name) {
+  size_t n = strlen(what) + strlen(name) + 3;
+
+  uv__free(lib->errmsg);
+  lib->errmsg = uv__malloc(n);
+  if (lib->errmsg != NULL)
+    snprintf(lib->errmsg, n, "%s: %s", what, name);
+  return -1;
+}
+
 
 int uv_dlopen(const char* filename, uv_lib_t* lib) {
-  (void) filename;
+  const uv_static_lib_t* l;
+  const char* base;
+
   lib->handle = NULL;
-  lib->errmsg = uv__strdup(uv__no_dl);
-  return -1;
+  lib->errmsg = NULL;
+  if (filename == NULL)
+    return uv__dl_fail(lib, "no dynamic loading on this system", "(null)");
+  base = uv__basename(filename);
+  for (l = uv__static_libs; l != NULL && l->file != NULL; l++) {
+    if (strcmp(l->file, base) == 0) {
+      lib->handle = (void*) l;
+      return 0;
+    }
+  }
+  return uv__dl_fail(lib,
+                     "no dynamic loading on this system, and not linked in",
+                     base);
 }
 
 
@@ -47,11 +92,19 @@ void uv_dlclose(uv_lib_t* lib) {
 
 
 int uv_dlsym(uv_lib_t* lib, const char* name, void** ptr) {
-  (void) name;
+  const uv_static_lib_t* l = lib->handle;
+  const uv_static_sym_t* s;
+
   *ptr = NULL;
-  uv__free(lib->errmsg);
-  lib->errmsg = uv__strdup(uv__no_dl);
-  return -1;
+  if (l != NULL)
+    for (s = l->syms; s->name != NULL; s++)
+      if (strcmp(s->name, name) == 0) {
+        *ptr = s->addr;
+        uv__free(lib->errmsg);
+        lib->errmsg = NULL;
+        return 0;
+      }
+  return uv__dl_fail(lib, "symbol not linked in", name);
 }
 
 

@@ -22,7 +22,7 @@ COMPAT_LIB  = build/m68k/libamigacompat.a
 
 .PHONY: all libs host-uvsmoke clean
 all: libs
-libs: $(B)/libuv.a $(B)/liblua.a $(B)/libluv.a $(B)/liblpeg.a \
+libs: $(B)/libamigawide.a $(B)/libuv.a $(B)/liblua.a $(B)/libluv.a $(B)/liblpeg.a \
       $(B)/libunibilium.a $(B)/libutf8proc.a $(B)/libtree-sitter.a $(B)/parsers
 
 $(COMPAT_LIB): $(wildcard amiga/compat/*.c) $(COMPAT_HDRS)
@@ -56,8 +56,9 @@ $(B)/uvsmoke: tests/uvsmoke.c $(B)/libuv.a $(COMPAT_LIB)
 
 # ---- the same libuv on this Mac (UV_NO_THREADS, UV_POSIX_POLL) -------------
 IXCOMPAT ?= $(HOME)/Code/ixemul-vtcon/compat
+# UV_STATIC_DL: the static uv_dlopen the Amiga uses (src/unix/dl.c)
 HCFLAGS = -O1 -g -Wall -Wno-unused -Wno-deprecated-declarations \
-          -DUV_NO_THREADS -DUV_POSIX_POLL -Dpoll=uvhost_select_poll \
+          -DUV_NO_THREADS -DUV_POSIX_POLL -DUV_STATIC_DL -Dpoll=uvhost_select_poll \
           -D_DARWIN_UNLIMITED_SELECT=0 -I$(UV)/include -I$(UV)/src
 H_UV_OBJS = $(filter-out $(H)/libuv/src/unix/amiga-os.o,\
               $(addprefix $(H)/libuv/,$(UV_SRCS:.c=.o))) $(H)/libuv/ixpoll.o \
@@ -207,6 +208,15 @@ $(foreach p,$(PARSERS),$(eval $(call parser_rule,$(p))))
 $(B)/parsers: $(foreach p,$(PARSERS),$(B)/libtsparser_$(p).a)
 	@touch $@
 
+# wide-character classification on utf8proc (amiga/wide; m68k only)
+$(B)/wide/wctype.o: amiga/wide/wctype.c $(U8P)/utf8proc.h $(COMPAT_HDRS)
+	@mkdir -p $(dir $@)
+	$(DCC) $(DCFLAGS) -DUTF8PROC_STATIC -I$(U8P) -c -o $@ $<
+
+$(B)/libamigawide.a: $(B)/wide/wctype.o
+	rm -f $@
+	$(DAR) rcs $@ $^
+
 # ---- host copies of the dependencies (for the host proof build of 0.12.5) --
 HD = build/v012/hostdeps
 HD_MAKE = $(MAKE) -f Makefile.v012 B=$(HD) DCC=$(HOSTCC) DAR=ar \
@@ -235,3 +245,4 @@ sysroot:
 	cp $(B)/libuv.a $(B)/liblua.a $(B)/libluv.a $(B)/liblpeg.a $(B)/libunibilium.a \
 	   $(B)/libutf8proc.a $(B)/libtree-sitter.a $(SR)/lib/
 	cp $(B)/libtsparser_*.a $(SR)/lib/
+	if [ -f $(B)/libamigawide.a ]; then cp $(B)/libamigawide.a $(SR)/lib/; fi

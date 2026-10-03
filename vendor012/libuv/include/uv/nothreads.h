@@ -22,4 +22,19 @@ typedef struct { void* value; } uv_key_t;
 /* (pthread_sigmask -> sigprocmask is src/unix/internal.h's: a public
    header must not rename a libc function for its users) */
 
+/* Static "dynamic" libraries (src/unix/dl.c on AmigaOS, or UV_STATIC_DL):
+ * the program registers what it links, uv_dlopen/uv_dlsym serve it. */
+typedef struct uv_static_sym_s {
+  const char* name;
+  void* addr;
+} uv_static_sym_t;
+
+typedef struct uv_static_lib_s {
+  const char* file;               /* the file name uv_dlopen matches */
+  const uv_static_sym_t* syms;    /* ends with { NULL, NULL } */
+} uv_static_lib_t;
+
+/* libs ends with { NULL, NULL }; it must stay valid (static) */
+void uv_static_dl_register(const uv_static_lib_t* libs);
+
 #endif /* UV_NOTHREADS_H */

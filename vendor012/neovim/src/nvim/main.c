@@ -87,6 +87,7 @@
 #include "nvim/os/input.h"
 #include "nvim/os/lang.h"
 #include "nvim/os/os.h"
+#include "nvim/os/static_dl.h"
 #include "nvim/os/os_defs.h"
 #include "nvim/os/signal.h"
 #include "nvim/os/stdpaths_defs.h"
@@ -248,6 +249,15 @@ void early_init(mparm_T *paramp)
   qf_init_stack();
 }
 
+#ifdef __amigaos__
+// AmigaOS gives a program the stack its starter chooses (4 KB from
+// Workbench, the CLI's default, 16 KB under UP-Term's vsh), and does not
+// grow it. The "$STACK: n" cookie in the file is how a program asks for
+// more (AmigaOS 3.2's shell and vsh honour it). 1 MB, as for 0.4.4 (the
+// port's ledger, D-8).
+const char amiga_stack_cookie[] __attribute__((used)) = "$STACK: 1048576";
+#endif
+
 #ifdef MAKE_LIB
 int nvim_main(int argc, char **argv);  // silence -Wmissing-prototypes
 int nvim_main(int argc, char **argv)
@@ -303,6 +313,7 @@ int main(int argc, char **argv)
 
   set_argf_var();
 
+  os_static_dl_init();  // statically linked tree-sitter parsers (AmigaOS)
   nlua_init(argv, argc, params.lua_arg0);
   TIME_MSG("init lua interpreter");
 
