@@ -68,8 +68,10 @@ def main():
     #    Lua and vim.loop, a file written ($VIMRUNTIME spelled through eval:
     #    the AmigaDOS shell would expand a $VAR in the command line)
     t0 = time.time()
+    # ixemul's argv parsing honours a quote only at the start of a word:
+    # +"call f(a, b)" splits at the spaces, "+call f(a, b)" stays whole
     rc, out = run(NV + ' -u NONE -i NONE --headless '
-                  '+"call writefile([string(1 + 1), eval(\'$\' . \'VIMRUNTIME\'), string(luaeval(\'vim.loop.hrtime() > 0\'))], \'RAM:nvh.txt\')" '
+                  '"+call writefile([string(1 + 1), eval(\'$\' . \'VIMRUNTIME\'), string(luaeval(\'vim.loop.hrtime() > 0\'))], \'RAM:nvh.txt\')" '
                   '+qa!', 300)
     secs = time.time() - t0
     got = run('Type RAM:nvh.txt')[1]
@@ -77,8 +79,8 @@ def main():
           'nvim --headless writes a file (%.1f s)' % secs, out + ' | ' + got)
 
     # 5. a shell command through uv_spawn (vfork + exec, socketpair stdio)
-    rc, out = run(NV + ' -u NONE -i NONE --headless --cmd "set shell=/VTC/vsh" '
-                  '+"call writefile(systemlist(\'echo spawned-ok\'), \'RAM:nvs.txt\')" +qa!', 300)
+    rc, out = run(NV + ' -u NONE -i NONE --headless "--cmd" "set shell=/VTC/vsh" '
+                  '"+call writefile(systemlist(\'echo spawned-ok\'), \'RAM:nvs.txt\')" +qa!', 300)
     got = run('Type RAM:nvs.txt')[1]
     check('spawned-ok' in got, 'system() runs a shell command', out + ' | ' + got)
 
@@ -96,6 +98,7 @@ def main():
         # engine's xterm personality with Neovim's own xterm-256color entry
         screen_rig.typeline('export TERM=xterm-256color', 2)
         screen_rig.typeline(NV + ' -u NONE -i NONE', 60)
+        SHOT.parent.mkdir(parents=True, exist_ok=True)
         ami.main(['shot', str(SHOT)])
         screen_rig.typeline('ihello amiga', 3)
         ami.key(0x45)  # Esc

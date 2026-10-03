@@ -14,8 +14,9 @@ in section R below). Commands: `RULES.md`.
 
 Finish line for this run: every dependency cross-built, libuv backend built and host-tested,
 Neovim linked for m68k-amigaos-ixemul, and the exact rig steps written down for the main
-session (this agent does not touch the rig). **Status: 31 of 35 items done; the 4 open ones
-(B10, D8, E1, E2) need the rig.**
+session (this agent does not touch the rig). **Status: 33 of 35 done; first rig run
+(vtcon main session, 2026-10-03) passed 7 of 7. Open: E1 (:terminal on the rig), E2 (speed).
+Baseline tagged `amiga-0.4.4-1`; the 0.12.5 port is planned in section Q below.**
 
 ## Decisions (do not re-litigate)
 
@@ -77,7 +78,7 @@ session (this agent does not touch the rig). **Status: 31 of 35 items done; the 
 - [x] B9 host build + libuv's own suite: 285 of 361 pass, 21 skip, 55 fail, each accounted for
       below (`tools/uv-host-tests.sh`, record in build/host/uv-tests.tsv) -- 802f46c
 - [x] B11 blocking ttys read once per readiness; all ttys stay blocking (shared console) -- 0c7e217
-- [ ] B10 **rig**: uvsmoke on the Amiga (nvim_rig.py step 1)
+- [x] B10 rig: uvsmoke PASS, 0 failed (main session, 2026-10-03)
 
 ### C. Other dependencies (m68k)
 - [x] C1 Lua 5.1.5 `liblua.a` + `lua51` interpreter -- 019618e
@@ -102,12 +103,15 @@ session (this agent does not touch the rig). **Status: 31 of 35 items done; the 
 - [x] D9 :terminal ptys: PTY: master + vfork child (`amiga_pty_spawn`) -- ed6821a (not run)
 - [x] D10 host build of the same tree (`make host-deps`, `configure-nvim.sh --host`) -- fa5935f
 - [x] D11 rig script `tools/nvim_rig.py` (steps 1-7), its Neovim commands checked on the host build
-- [ ] D8 **rig**: `nvim --version`, headless run, system(), the TUI in an UP-Term window (nvim_rig.py)
+- [x] D8 rig (2026-10-03, nvim_rig.py, 7 of 7): --version; headless writefile (runtime found at
+      /VTCX/nvim-test/nvim/share/nvim/runtime, vim.loop v:true); system() through vsh = spawned-ok;
+      TUI in an XCON: window with TERM=xterm-256color: intro screen, typed text saved, :q; splits
+      (-O, :split), syntax, number, cursorline drawn right. Screenshots in build/rig/.
 
 ### E. After the rig answers (in order)
 - [ ] E1 fix what D8/B10 show; :terminal in Neovim on PTY: (D9) on the rig
-- [ ] E2 startup time and memory on the 68020 (nvim_rig.py prints the headless times); decide
-      whether syntax/filetype defaults need trimming for speed
+- [ ] E2 startup time and memory on the 68020. Rig (FS-UAE, NOT cycle-exact): headless with
+      defaults 53.9 s. The A1200 number is unknown. Decide whether the defaults need trimming.
 
 Next run, not counted above: E3 stack depth measured (a `:call` chain to 'maxfuncdepth', a
 big regexp); E4 Q2 (vtcon plan): Neovim 0.4.4's test/functional tui_spec through the engine.
@@ -171,6 +175,11 @@ tcp_try_write_error (macOS answers ECONNRESET where the test wants EPIPE: host O
 - Every file that includes uv.h on the host needs `-DUV_NO_THREADS -DUV_POSIX_POLL` (struct layout).
 - unibilium's TERMINFO_DIRS is ':'-separated, so an AmigaOS path ("Vol:dir") cannot be in it;
   $TERMINFO (one directory) can.
+- ixemul's argv parsing honours a quote only at the start of a word: `+"call f(a, b)"` splits
+  at the spaces, write `"+call f(a, b)"`, `"--cmd" "set shell=/VTC/vsh"` (rig, 2026-10-03).
+  `+"cq 7"` hung nvim on the rig (not investigated; the rig had to restart).
+- vsh does not find a program by a Unix path (/VTC/nvim-test/...); Amiga paths (VTC:...) work.
+  vsh's issue (vtcon), not this repo's.
 - AmigaDOS shell: `*` is its escape character and `$NAME` is expanded, also inside quotes --
   the rig script avoids both in command lines.
 - Neovim 0.4.4's own host quirks: os/lang.c needs `-include locale.h` on macOS, and its LuaJIT
