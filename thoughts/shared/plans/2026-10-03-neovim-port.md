@@ -432,6 +432,14 @@ Plan:
   (auto_start is off in this config), so loading it should be harmless -- to be checked on the
   host with python3 hidden from PATH. **Owner/friend decision**: keep the config unchanged (coq
   inert) or replace coq with 0.12's built-in insert completion (`'autocomplete'`).
+  **Decided 2026-10-03 (owner: "do as you recommend"; MicroPython considered and ruled out --
+  no venv, no sqlite3, a small asyncio, no CPython C extensions, so neither coq nor pynvim):
+  replace, in the Amiga copy only.** tools/user-config.sh drops the three `Plug 'ms-jpq/coq...'`
+  lines from the copied init.vim and writes init-local.vim (the config's machine-local file):
+  `set autocomplete`, autocompletedelay=150, complete=.,w,b,u, completeopt=menuone,noselect,popup.
+  The friend's init.vim elsewhere is unchanged. Plugin data 33 MB -> 4.3 MB. Host check (the
+  Amiga copy, no git, no python3 on PATH): autocomplete=true, coq_nvim not registered, lualine
+  loads; startup messages only vim-plug's "git not found".
 - **Speed risk**: lualine redraws the status line and tabline from timers in Lua; on a 68020
   under PUC Lua that may cost visibly. Measure on the rig (Q15) before changing anything.
 - **Nerd Font glyphs**: nvim-web-devicons, lualine (`icons_enabled = true`) and neo-tree draw

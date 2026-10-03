@@ -29,9 +29,23 @@ H=$OUT/home
 CFG=$H/.config/nvim
 DATA=$H/.local/share/nvim
 mkdir -p "$CFG/colors" "$DATA/site/autoload"
-cp "$OUT/src/nvim/init.vim" "$CFG/init.vim"
+# coq_nvim needs CPython 3.8+ (a venv, sqlite3, asyncio, C extensions),
+# which 68k AmigaOS does not have (MicroPython lacks all four): the Amiga
+# copy drops its three Plug lines and uses Neovim 0.12's own completion,
+# set in init-local.vim -- the config's machine-local file, sourced at the
+# end of init.vim. The owner chose this (2026-10-03, "do as you
+# recommend"); the friend's own init.vim elsewhere is unchanged.
+grep -v "Plug 'ms-jpq/coq" "$OUT/src/nvim/init.vim" > "$CFG/init.vim"
 [ -d "$OUT/src/nvim/colors" ] && cp "$OUT/src/nvim/colors/"* "$CFG/colors/"
-: > "$CFG/init-local.vim"   # sourced at the end of init.vim, machine-local
+cat > "$CFG/init-local.vim" <<'VIM'
+" This Amiga (UP-Term kit): coq_nvim needs CPython 3.8 or newer, which 68k
+" AmigaOS does not have, so Neovim 0.12's built-in completion is used here:
+" a menu as you type, from this buffer, the other windows and buffers.
+set autocomplete
+set autocompletedelay=150
+set complete=.,w,b,u
+set completeopt=menuone,noselect,popup
+VIM
 curl -fsSL -o "$DATA/site/autoload/plug.vim" "$PLUG_URL"
 
 run_nvim() {   # run_nvim <PATH> args...
