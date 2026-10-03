@@ -9,4 +9,14 @@
 #ifndef O_NOFOLLOW
 #define O_NOFOLLOW	0
 #endif
+
+/* POSIX 2008's F_DUPFD_CLOEXEC, which ixemul's fcntl() does not know:
+ * fcntl() is routed through __amiga_fcntl (compat/posix.c), which does it
+ * as F_DUPFD + F_SETFD FD_CLOEXEC (one thread: nothing can fork between)
+ * and passes every other command to ixemul. */
+#ifndef F_DUPFD_CLOEXEC
+#define F_DUPFD_CLOEXEC	0x7f20
+int	__amiga_fcntl(int, int, ...);
+#define fcntl __amiga_fcntl
+#endif
 #endif

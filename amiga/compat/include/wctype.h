@@ -1,9 +1,9 @@
 /* <wctype.h> for ixemul 48.2, which has none (the toolchain's fallback is
  * newlib's, whose types clash with ixemul's). ixemul has no wide-character
- * classification at all, so these are declarations only: a caller links
- * against nothing and fails at link time, never silently. Neovim 0.4 uses
- * them only under __STDC_ISO_10646__/USE_WCHAR_FUNCTIONS, which ixemul does
- * not define; it has its own Unicode tables. (Request R1.) */
+ * classification at all: these are implemented on utf8proc's Unicode
+ * tables in amiga/wide (libamigawide.a, the Neovim 0.12 build, which links
+ * utf8proc anyway). Without that library a caller fails at link time,
+ * never silently (Neovim 0.4.4 calls none of them). (Request R1.) */
 #ifndef AMIGA_COMPAT_WCTYPE_H
 #define AMIGA_COMPAT_WCTYPE_H
 #pragma GCC system_header

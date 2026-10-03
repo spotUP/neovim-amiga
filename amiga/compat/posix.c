@@ -6,11 +6,15 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <errno.h>
+#include <signal.h>
+#include <fcntl.h>
+#include <stdarg.h>
 #include <grp.h>
 #include <iconv.h>
 #include <ifaddrs.h>
 #include <inttypes.h>
 #include <net/if.h>
+#include <pthread.h>
 #include <pwd.h>
 #include <sched.h>
 #include <stdlib.h>
@@ -378,4 +382,94 @@ iconv_close(iconv_t cd)
 	(void)cd;
 	errno = EBADF;
 	return -1;
+}
+
+#undef fcntl
+int
+__amiga_fcntl(int fd, int cmd, ...)
+{
+	va_list ap;
+	long arg;
+	int nfd;
+
+	va_start(ap, cmd);
+	arg = va_arg(ap, long);
+	va_end(ap);
+	if (cmd != F_DUPFD_CLOEXEC)
+		return fcntl(fd, cmd, arg);
+	if ((nfd = fcntl(fd, F_DUPFD, arg)) < 0)
+		return -1;
+	if (fcntl(nfd, F_SETFD, FD_CLOEXEC) < 0) {
+		int e = errno;
+		close(nfd);
+		errno = e;
+		return -1;
+	}
+	return nfd;
+}
+
+int
+pthread_sigmask(int how, const sigset_t *set, sigset_t *old)
+{
+	return sigprocmask(how, set, old) == 0 ? 0 : errno;
+}
+
+pthread_t
+pthread_self(void)
+{
+	return 0;
+}
+
+int
+pthread_equal(pthread_t a, pthread_t b)
+{
+	return a == b;
+}
+
+void
+pthread_exit(void *value)
+{
+	(void)value;
+	exit(0);	/* the one thread: the process ends with it */
+}
+
+char *
+strtok_r(char *s, const char *delim, char **save)
+{
+	char *end;
+
+	if (s == NULL)
+		s = *save;
+	s += strspn(s, delim);
+	if (*s == '\0') {
+		*save = s;
+		return NULL;
+	}
+	end = s + strcspn(s, delim);
+	if (*end != '\0')
+		*end++ = '\0';
+	*save = end;
+	return s;
+}
+
+long long
+llabs(long long n)
+{
+	return n < 0 ? -n : n;
+}
+
+long long
+atoll(const char *s)
+{
+	return strtoq(s, NULL, 10);
+}
+
+lldiv_t
+lldiv(long long n, long long d)
+{
+	lldiv_t r;
+
+	r.quot = n / d;
+	r.rem = n % d;
+	return r;
 }

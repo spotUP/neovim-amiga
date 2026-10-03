@@ -4,4 +4,5 @@
 #pragma GCC system_header
 #include_next <string.h>
 size_t	strnlen(const char *, size_t);
+char	*strtok_r(char *, const char *, char **);
 #endif
