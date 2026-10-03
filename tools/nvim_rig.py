@@ -15,6 +15,12 @@ stops nothing, so one run collects every answer.
   tools/nvim_rig.py              steps 1-6 (no window)
   tools/nvim_rig.py --tui        and step 7, the TUI in an XCON: window
   tools/nvim_rig.py --tui --keep leave the window open afterwards
+  tools/nvim_rig.py --v012 ...   Neovim 0.12.5 instead (build/v012/dist,
+                                 `make -f Makefile.v012 dist`) into
+                                 VTC:nvim012/; step 2 runs compat_probe
+                                 instead of lua51; step 7 also opens :help
+                                 (vimdoc through the static parser) and
+                                 reports AvailMem before, during and after
 """
 import os, pathlib, shutil, struct, sys, time
 
@@ -25,14 +31,25 @@ import install_rig                         # noqa: E402
 from install_rig import run, check         # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-DIST = ROOT / 'build/m68k/dist'
+V012 = '--v012' in sys.argv
+DIST = ROOT / ('build/v012/dist' if V012 else 'build/m68k/dist')
 VTC = VTCON / 'build/rig/vtc'
-NV = 'VTC:nvim-test/nvim/bin/nvim'
-SHOT = ROOT / 'build/rig/nvim_tui.png'
+DIR = 'nvim012' if V012 else 'nvim-test'
+NV = 'VTC:%s/nvim/bin/nvim' % DIR
+SHOT = ROOT / ('build/rig/nvim012_tui.png' if V012 else 'build/rig/nvim_tui.png')
+
+
+def avail():
+    """free memory (bytes) from AmigaDOS Avail"""
+    rc, out = run('Avail TOTAL', 20)
+    try:
+        return int(out.split()[-1])
+    except (ValueError, IndexError):
+        return -1
 
 
 def install():
-    dst = VTC / 'nvim-test'
+    dst = VTC / DIR
     if dst.exists():
         shutil.rmtree(dst)
     shutil.copytree(DIST, dst)
@@ -49,20 +66,26 @@ def main():
     run('Delete RAM:nv#? QUIET')
 
     # 1. libuv backend: every check prints ok/FAIL, PASS at the end
-    rc, out = run('VTC:nvim-test/uvsmoke', 120)
+    rc, out = run('VTC:%s/uvsmoke' % DIR, 120)
     print(out)
     check(rc == 0 and 'PASS: 0 failed' in out, 'uvsmoke (libuv backend) passes', out[-400:])
 
-    # 2. PUC Lua 5.1 on the 68020, the math libamigacompat adds
-    #    (no * in the command: the AmigaDOS shell's escape character)
-    rc, out = run('VTC:nvim-test/lua51 -e "print(_VERSION, math.atan2(1, 0), '
-                  'string.format(\'%5.2f\', 3.14159), 2^53)"', 60)
-    check(rc == 0 and 'Lua 5.1' in out and '1.5707' in out and '3.14' in out,
-          'lua51 runs', out)
+    if V012:
+        # 2. libamigacompat's atomics and clocks (0.12's libuv and tree-sitter use them)
+        rc, out = run('VTC:%s/compat_probe' % DIR, 60)
+        print(out)
+        check(rc == 0 and 'PASS: 0 failed' in out, 'compat_probe passes', out[-300:])
+    else:
+        # 2. PUC Lua 5.1 on the 68020, the math libamigacompat adds
+        #    (no * in the command: the AmigaDOS shell's escape character)
+        rc, out = run('VTC:nvim-test/lua51 -e "print(_VERSION, math.atan2(1, 0), '
+                      'string.format(\'%5.2f\', 3.14159), 2^53)"', 60)
+        check(rc == 0 and 'Lua 5.1' in out and '1.5707' in out and '3.14' in out,
+              'lua51 runs', out)
 
     # 3. the binary loads and starts (stack cookie, ixemul vectors)
     rc, out = run(NV + ' --version', 120)
-    check(rc == 0 and 'NVIM v0.4.4' in out, 'nvim --version', out)
+    check(rc == 0 and ('NVIM v0.12.5' if V012 else 'NVIM v0.4.4') in out, 'nvim --version', out)
 
     # 4. headless: the editor, its runtime found from the binary's path,
     #    Lua and vim.loop, a file written ($VIMRUNTIME spelled through eval:
@@ -71,7 +94,7 @@ def main():
     # ixemul's argv parsing honours a quote only at the start of a word:
     # +"call f(a, b)" splits at the spaces, "+call f(a, b)" stays whole
     rc, out = run(NV + ' -u NONE -i NONE --headless '
-                  '"+call writefile([string(1 + 1), eval(\'$\' . \'VIMRUNTIME\'), string(luaeval(\'vim.loop.hrtime() > 0\'))], \'RAM:nvh.txt\')" '
+                  '"+call writefile([string(1 + 1), eval(\'$\' . \'VIMRUNTIME\'), string(luaeval(\'(vim.uv or vim.loop).hrtime() > 0\'))], \'RAM:nvh.txt\')" '
                   '+qa!', 300)
     secs = time.time() - t0
     got = run('Type RAM:nvh.txt')[1]
@@ -97,9 +120,22 @@ def main():
         # the kit (and its vtcon terminfo) is not installed on the rig: the
         # engine's xterm personality with Neovim's own xterm-256color entry
         screen_rig.typeline('export TERM=xterm-256color', 2)
-        screen_rig.typeline(NV + ' -u NONE -i NONE', 60)
+        before = avail()
+        screen_rig.typeline(NV + ' -u NONE -i NONE', 90 if V012 else 60)
+        during = avail()
         SHOT.parent.mkdir(parents=True, exist_ok=True)
         ami.main(['shot', str(SHOT)])
+        print('AvailMem before %d, with nvim running %d: nvim uses %d bytes'
+              % (before, during, before - during))
+        if V012:
+            # :help is highlighted by the statically linked vimdoc parser
+            screen_rig.typeline(':help', 30)
+            # no brackets in typed text: amiagent types [ as (
+            screen_rig.typeline(":lua local f = io.open('RAM:nvts.txt', 'w') f:write(tostring("
+                                "vim.treesitter.language.add('vimdoc'))) f:close()", 10)
+            screen_rig.typeline(':q', 3)  # close the help window
+            got = run('Type RAM:nvts.txt')[1]
+            check('true' in got, 'the vimdoc parser loads (static uv_dlopen)', got)
         screen_rig.typeline('ihello amiga', 3)
         ami.key(0x45)  # Esc
         time.sleep(2)
@@ -111,6 +147,7 @@ def main():
             screen_rig.typeline('exit', 2)
             screen_rig.typeline('endcli', 2)
         print('screenshot of the TUI at start:', SHOT)
+        print('AvailMem after nvim quit: %d' % avail())
 
     print('nvim_rig: passed %d of %d' % (install_rig.passed, install_rig.total))
     return 0 if install_rig.passed == install_rig.total else 1

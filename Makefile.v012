@@ -246,3 +246,27 @@ sysroot:
 	   $(B)/libutf8proc.a $(B)/libtree-sitter.a $(SR)/lib/
 	cp $(B)/libtsparser_*.a $(SR)/lib/
 	if [ -f $(B)/libamigawide.a ]; then cp $(B)/libamigawide.a $(SR)/lib/; fi
+
+# ---- dist: what goes onto the Amiga ----------------------------------------
+# build/v012/dist/nvim/bin/nvim (stripped) + share/nvim/runtime (from the
+# host build's install: generated syntax, help tags), with an empty
+# runtime/parser/<lang>.so marker for each linked parser (os/static_dl.c).
+# uvsmoke (libuv 1.52) and compat_probe go alongside.
+DIST = build/v012/dist/nvim
+TS_LINKED ?= vimdoc lua query markdown markdown_inline
+dist: $(B)/uvsmoke $(B)/compat_probe
+	ninja -C $(B)/nvim nvim_bin
+	ninja -C $(H)/nvim nvim
+	rm -rf $(H)/stage && DESTDIR=$(CURDIR)/$(H)/stage ninja -C $(H)/nvim install > $(H)/install.log
+	rm -rf build/v012/dist && mkdir -p $(DIST)/bin $(DIST)/share/nvim
+	$(AMIGA)/bin/m68k-amigaos-strip -o $(DIST)/bin/nvim $(B)/nvim/bin/nvim
+	chmod +x $(DIST)/bin/nvim
+	cp -R $(H)/stage/usr/local/share/nvim/runtime $(DIST)/share/nvim/
+	mkdir -p $(DIST)/share/nvim/runtime/parser
+	for p in $(TS_LINKED); do : > $(DIST)/share/nvim/runtime/parser/$$p.so; done
+	# FFS (OFS/FFS without long names) holds 30 characters per name: the one
+	# runtime file over that, a keymap, is left out (ledger section Q)
+	rm -f $(DIST)/share/nvim/runtime/keymap/brazilian_portuguese-compact.vim
+	! find $(DIST) -exec basename {} \; | awk 'length($$0)>30' | grep .
+	cp $(B)/uvsmoke $(B)/compat_probe build/v012/dist/
+	ls -l $(DIST)/bin/nvim
