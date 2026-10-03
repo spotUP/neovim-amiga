@@ -270,3 +270,15 @@ dist: $(B)/uvsmoke $(B)/compat_probe
 	! find $(DIST) -exec basename {} \; | awk 'length($$0)>30' | grep .
 	cp $(B)/uvsmoke $(B)/compat_probe build/v012/dist/
 	ls -l $(DIST)/bin/nvim
+
+# ---- the host Lua that dumps bytecode for the Amiga (ledger Q13) ----------
+# vendor/lua with amiga/lua-m68kdump/{ldump,lundump}.c: string.dump writes
+# (and load reads) the m68k format. Same C ABI as $(H)/lua51, so it can run
+# Neovim's generators and load the host nlua0 too.
+LUA_HOST_SRCS = $(filter-out ldump.c lundump.c,$(LUA_SRCS))
+$(H)/lua51-m68kdump: $(addprefix $(LUA)/,$(LUA_HOST_SRCS)) $(LUA)/lua.c \
+                     amiga/lua-m68kdump/ldump.c amiga/lua-m68kdump/lundump.c
+	@mkdir -p $(H)
+	$(HOSTCC) -O1 -g -w -DLUA_USE_POSIX -DLUA_USE_DLOPEN -I$(LUA) -o $@ \
+	  $(addprefix $(LUA)/,$(LUA_HOST_SRCS)) amiga/lua-m68kdump/ldump.c \
+	  amiga/lua-m68kdump/lundump.c $(LUA)/lua.c -Wl,-export_dynamic

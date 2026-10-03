@@ -26,14 +26,21 @@ else
 	OUT=$ROOT/build/v012/m68k/nvim
 	NLUA0=$(ls "$ROOT"/build/v012/host/nvim/lib/libnlua0* 2>/dev/null | head -1)
 	[ -n "$NLUA0" ] || { echo "build the host nvim first (its nlua0)"; exit 1; }
+	# the embedded Lua modules as m68k bytecode: LUA_PRG (which runs
+	# gen_char_blob -c) is the host Lua whose string.dump writes the Amiga's
+	# format (Makefile.v012: lua51-m68kdump); the other generators run in
+	# lua51 with the host nlua0, as for the host build
+	DUMPER=$ROOT/build/v012/host/lua51-m68kdump
+	[ -x "$DUMPER" ] || { echo "make -f Makefile.v012 $DUMPER first"; exit 1; }
 	set -- -DCMAKE_TOOLCHAIN_FILE="$ROOT/amiga/cmake/m68k-amigaos-ixemul012.cmake" \
-	  -DCMAKE_FIND_ROOT_PATH="$SR" -DNLUA0_HOST_PRG="$NLUA0" -DCOMPILE_LUA=OFF \
+	  -DCMAKE_FIND_ROOT_PATH="$SR" -DNLUA0_HOST_PRG="$NLUA0" -DCOMPILE_LUA=ON \
+	  -DLUA_PRG="$DUMPER" \
 	  -DICONV_INCLUDE_DIR="$ROOT/amiga/compat/include" "$@"
 fi
 export PKG_CONFIG_LIBDIR="$SR/lib/pkgconfig" PKG_CONFIG_PATH=
 cmake -S "$ROOT/vendor012/neovim" -B "$OUT" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
-  -DPREFER_LUA=ON -DLUA_PRG="$LUA51" -DLUA_GEN_PRG="$LUA51" \
+  -DPREFER_LUA=ON -DLUA_GEN_PRG="$LUA51" -DLUA_PRG="$LUA51" \
   -DLUA_INCLUDE_DIR="$SR/include" -DLUA_LIBRARY="$SR/lib/liblua.a" \
   -DLIBUV_INCLUDE_DIR="$SR/include" -DLIBUV_LIBRARY="$SR/lib/libuv.a" \
   -DLUV_INCLUDE_DIR="$SR/include" -DLUV_LIBRARY="$SR/lib/libluv.a" \
