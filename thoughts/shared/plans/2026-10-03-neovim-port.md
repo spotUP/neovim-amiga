@@ -357,6 +357,9 @@ tcp_try_write_error (macOS answers ECONNRESET where the test wants EPIPE: host O
         and Neovim push, file sizes included). Check: tests/luaint_check.c (m68k static assert,
         fails on the old header); the rig asks hrtime() > 2^32 (always true after 4.3 s).
         0.4.4 shares vendor/lua: it gets the same type when next rebuilt.
+        0.4.4 rebuilt with it (3,012,464 bytes): rig 2026-10-03 (`nvim_rig.py --tui`, run by the
+        vtcon session) 8 of 8 -- headless writefile 5.2 s, headless defaults 47.3 s, TUI ready in
+        10 s, typed text saved.
       - FAIL 8 parser: in the TUI (started from vsh) $VIMRUNTIME fell back to /usr/local/share/nvim.
         vsh runs a program with SetProgramName(argv[0]) + RunCommand and no SetProgramDir (V3),
         and libuv's uv__amiga_program_path joined GetProgramDir() (vsh's VTCX:) with the name's
