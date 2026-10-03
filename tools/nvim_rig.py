@@ -39,6 +39,39 @@ NV = 'VTC:%s/nvim/bin/nvim' % DIR
 SHOT = ROOT / ('build/rig/nvim012_tui.png' if V012 else 'build/rig/nvim_tui.png')
 
 
+RIG_VIM = r"""" nvim_rig.py: sourced with -S; VimEnter fires once startup is
+" over (screen drawn, input taken), VimLeave when nvim really quits
+autocmd VimEnter * call writefile(['ready', 'v:termresponse=' . strtrans(v:termresponse)]
+      \ + split(execute('messages'), "\n"), 'RAM:nvready.txt')
+autocmd VimLeave * call writefile(['bye'], 'RAM:nvbye.txt')
+"""
+
+RIG2_VIM = r"""" nvim_rig.py: the parser check, sourced from the typed :source line
+lua << END
+local ok, r = pcall(vim.treesitter.language.add, 'vimdoc')
+local hok, herr = pcall(vim.cmd, 'help')
+local f = io.open('RAM:nvts.txt', 'w')
+f:write(string.format('add=%s %s\nhelp=%s %s ft=%s\n', tostring(ok), tostring(r),
+  tostring(hok), tostring(herr), vim.bo.filetype))
+f:close()
+END
+helpclose
+call writefile(['messages:'] + split(execute('messages'), "\n"), 'RAM:nvmsg.txt')
+"""
+
+
+def poll(path, done, secs):
+    """the text of the Amiga file path once done(text), or what it held at
+    the end of secs ('' when it never appeared)"""
+    t0, got = time.time(), ''
+    while time.time() - t0 < secs:
+        got = run('Type %s' % path)[1]
+        if done(got):
+            break
+        time.sleep(3)
+    return got
+
+
 def avail():
     """free memory (bytes) from AmigaDOS Avail"""
     rc, out = run('Avail TOTAL', 20)
@@ -112,41 +145,67 @@ def main():
     rc, out = run(NV + ' -i NONE --headless +qa!', 300)
     check(rc == 0, 'nvim --headless +qa! with defaults (%.1f s)' % (time.time() - t0), out)
 
-    # 7. the TUI in an UP-Term window: type, save, quit
+    # 7. the TUI in an UP-Term window. Nothing is typed until nvim says it
+    #    is ready (rig.vim, sourced with -S, writes RAM:nvready.txt on
+    #    VimEnter with v:termresponse and the messages so far, and
+    #    RAM:nvbye.txt on VimLeave);
+    #    the parser check is a sourced file (no brackets to type: amiagent
+    #    types [ as ( ); nvim's terminal round trips are traced to
+    #    RAM:nvtrace.txt ($NVIM_TERMTRACE, 0.12 only).
     if '--tui' in sys.argv:
+        (VTC / DIR / 'rig.vim').write_text(RIG_VIM)
+        (VTC / DIR / 'rig2.vim').write_text(RIG2_VIM)
+        run('Delete RAM:nvready.txt RAM:nvts.txt RAM:nvmsg.txt RAM:nvtrace.txt RAM:nvtui.txt '
+            'RAM:nvbye.txt QUIET')
         ami.req(0x02, struct.pack('>H', 10) + b'run >NIL: newshell "XCON:0/20/780/560/nvim/CLOSE"')
         time.sleep(4)
         screen_rig.typeline('VTC:vsh', 3)
         # the kit (and its vtcon terminfo) is not installed on the rig: the
         # engine's xterm personality with Neovim's own xterm-256color entry
         screen_rig.typeline('export TERM=xterm-256color', 2)
+        if V012:
+            screen_rig.typeline('export NVIM_TERMTRACE=RAM:nvtrace.txt', 2)
         before = avail()
-        screen_rig.typeline(NV + ' -u NONE -i NONE', 90 if V012 else 60)
+        t0 = time.time()
+        screen_rig.typeline(NV + ' -u NONE -i NONE -S VTC:%s/rig.vim' % DIR, 1)
+        ready = poll('RAM:nvready.txt', lambda t: t.startswith('ready'), 300)
+        check(ready.startswith('ready'), 'the TUI starts (%.0f s to ready)' % (time.time() - t0),
+              ready or '(no RAM:nvready.txt after 300 s)')
+        print('--- at ready:\n' + ready)
         during = avail()
         SHOT.parent.mkdir(parents=True, exist_ok=True)
         ami.main(['shot', str(SHOT)])
         print('AvailMem before %d, with nvim running %d: nvim uses %d bytes'
               % (before, during, before - during))
         if V012:
-            # :help is highlighted by the statically linked vimdoc parser
-            screen_rig.typeline(':help', 30)
-            # no brackets in typed text: amiagent types [ as (
-            screen_rig.typeline(":lua local f = io.open('RAM:nvts.txt', 'w') f:write(tostring("
-                                "vim.treesitter.language.add('vimdoc'))) f:close()", 10)
-            screen_rig.typeline(':q', 3)  # close the help window
+            screen_rig.typeline(':source VTC:%s/rig2.vim' % DIR, 1)
+            # rig2.vim writes RAM:nvts.txt, closes the help, then writes
+            # RAM:nvmsg.txt: the second file means nvim is back in Normal mode
+            msgs = poll('RAM:nvmsg.txt', lambda t: t.startswith('messages:'), 300)
             got = run('Type RAM:nvts.txt')[1]
-            check('true' in got, 'the vimdoc parser loads (static uv_dlopen)', got)
+            print('--- parser check (RAM:nvts.txt):\n' + got)
+            print('--- messages (RAM:nvmsg.txt):\n' + msgs)
+            check(got.startswith('add=true true'), 'the vimdoc parser loads (static uv_dlopen)',
+                  got or '(no RAM:nvts.txt)')
+        # typed while nvim is known to be idle in Normal mode (VimEnter, and
+        # for 0.12 the parser check, have written their files); the result
+        # files are polled, not read after a fixed sleep
         screen_rig.typeline('ihello amiga', 3)
         ami.key(0x45)  # Esc
         time.sleep(2)
-        screen_rig.typeline(':w RAM:nvtui.txt', 5)
-        screen_rig.typeline(':q', 10)
-        got = run('Type RAM:nvtui.txt')[1]
-        check(got.strip() == 'hello amiga', 'the TUI: typed text saved, nvim quit', got)
+        screen_rig.typeline(':w RAM:nvtui.txt', 1)
+        got = poll('RAM:nvtui.txt', lambda t: 'hello amiga' in t, 120)
+        screen_rig.typeline(':q', 1)
+        bye = poll('RAM:nvbye.txt', lambda t: 'bye' in t, 120)
+        check(got.strip() == 'hello amiga' and 'bye' in bye,
+              'the TUI: typed text saved, nvim quit',
+              'RAM:nvtui.txt: %r; RAM:nvbye.txt (VimLeave): %r' % (got, bye))
+        if V012:
+            print('--- RAM:nvtrace.txt (NVIM_TERMTRACE):\n' + run('Type RAM:nvtrace.txt')[1])
         if '--keep' not in sys.argv:
             screen_rig.typeline('exit', 2)
             screen_rig.typeline('endcli', 2)
-        print('screenshot of the TUI at start:', SHOT)
+        print('screenshot of the TUI at ready:', SHOT)
         print('AvailMem after nvim quit: %d' % avail())
 
     print('nvim_rig: passed %d of %d' % (install_rig.passed, install_rig.total))
