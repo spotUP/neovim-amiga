@@ -58,6 +58,7 @@
 #include "nvim/os/fileio.h"
 #include "nvim/os/fileio_defs.h"
 #include "nvim/os/os.h"
+#include "nvim/os/termtrace.h"
 #include "nvim/path.h"
 #include "nvim/pos_defs.h"
 #include "nvim/profile.h"
@@ -529,6 +530,7 @@ static int nlua_wait(lua_State *lstate)
 
   // Flush screen updates before blocking.
   ui_flush();
+  termtrace("vim.wait(%d) begins", (int)timeout);
 
   LOOP_PROCESS_EVENTS_UNTIL(&main_loop,
                             loop_events,
@@ -539,6 +541,8 @@ static int nlua_wait(lua_State *lstate)
                                                                           &nresults)
                                                     : false));
 
+  termtrace("vim.wait ends: %s", got_int ? "interrupted"
+            : (pcall_status ? "error" : (callback_result ? "condition true" : "timed out")));
   // Stop dummy timer
   time_watcher_stop(tw);
   time_watcher_close(tw, dummy_timer_close_cb);

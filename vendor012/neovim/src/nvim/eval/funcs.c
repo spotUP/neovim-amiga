@@ -2653,6 +2653,9 @@ static void f_gettext(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 static void f_has(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 {
   static const char *const has_list[] = {
+#ifdef __amigaos__
+    "amiga",
+#endif
 #ifdef __ANDROID__
     "android",
 #endif

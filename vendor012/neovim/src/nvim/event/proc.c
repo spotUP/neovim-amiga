@@ -9,6 +9,7 @@
 #include "nvim/event/loop.h"
 #include "nvim/event/multiqueue.h"
 #include "nvim/event/proc.h"
+#include "nvim/os/termtrace.h"
 #include "nvim/event/rstream.h"
 #include "nvim/event/stream.h"
 #include "nvim/event/wstream.h"
@@ -438,6 +439,7 @@ static void exit_event(void **argv)
 void exit_on_closed_chan(int status)
 {
   DLOG("self-exit triggered by closed RPC channel...");
+  termtrace("exit_on_closed_chan(%d): a channel closed", status);
   multiqueue_put(main_loop.fast_events, exit_event, (void *)(intptr_t)status);
 }
 

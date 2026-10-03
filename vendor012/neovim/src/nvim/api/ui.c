@@ -39,6 +39,7 @@
 #include "nvim/option.h"
 #include "nvim/types_defs.h"
 #include "nvim/ui.h"
+#include "nvim/os/termtrace.h"
 
 #define BUF_POS(ui) ((size_t)((ui)->packer.ptr - (ui)->packer.startptr))
 
@@ -883,6 +884,7 @@ static void ui_flush_buf(RemoteUI *ui, bool incomplete_event)
   }
 
   WBuffer *buf = wstream_new_buffer(ui->packer.startptr, BUF_POS(ui), 1, free_block);
+  termtrace("server: writes a redraw batch, %lu bytes", (unsigned long)BUF_POS(ui));
   rpc_write_raw(ui->channel_id, buf);
 
   ui->packer.startptr = NULL;
@@ -917,6 +919,7 @@ void remote_ui_ui_send(RemoteUI *ui, String content)
 
   MAXSIZE_TEMP_ARRAY(args, 1);
   ADD_C(args, STRING_OBJ(content));
+  termtrace_bytes("server: queues ui_send", content.data, content.size);
   push_call(ui, "ui_send", args);
 }
 

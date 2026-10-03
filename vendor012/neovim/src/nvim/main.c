@@ -88,6 +88,7 @@
 #include "nvim/os/lang.h"
 #include "nvim/os/os.h"
 #include "nvim/os/static_dl.h"
+#include "nvim/os/termtrace.h"
 #include "nvim/os/os_defs.h"
 #include "nvim/os/signal.h"
 #include "nvim/os/stdpaths_defs.h"
@@ -313,6 +314,7 @@ int main(int argc, char **argv)
 
   set_argf_var();
 
+  termtrace("main: start");
   os_static_dl_init();  // statically linked tree-sitter parsers (AmigaOS)
   nlua_init(argv, argc, params.lua_arg0);
   TIME_MSG("init lua interpreter");
@@ -719,6 +721,7 @@ int main(int argc, char **argv)
 void os_exit(int r)
   FUNC_ATTR_NORETURN
 {
+  termtrace("os_exit(%d)", r);
   exiting = true;
 
   if (UI_CLIENT_ONLY) {

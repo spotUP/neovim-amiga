@@ -973,8 +973,17 @@ do
 
       -- Wait until detection of OSC 11 capabilities is complete to
       -- ensure background is automatically set before user config.
+      --
+      -- AmigaOS (68020): the 100 ms is spent inside Nvim, not in the
+      -- terminal. Between the query and the DSR answer Nvim runs the
+      -- socketpair hop to the in-process TUI, the termkey parse, two RPC
+      -- events and two TermResponse callbacks: about 0.1 ms on a current
+      -- host, 1000-2000 times that on a 68020 (UP-Term answers in 2 ms).
+      -- The wait ends at the answer, so the longer bound only costs time
+      -- with a terminal that never answers.
+      local dsr_timeout = vim.fn.has('amiga') == 1 and 1500 or 100
       if
-        not vim.wait(100, function()
+        not vim.wait(dsr_timeout, function()
           return did_dsr_response
         end, 1)
         -- Don't show the warning when running tests to avoid flakiness.

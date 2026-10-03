@@ -8,6 +8,7 @@
 
 #include "klib/kvec.h"
 #include "nvim/api/events.h"
+#include "nvim/os/termtrace.h"
 #include "nvim/api/private/converter.h"
 #include "nvim/api/private/defs.h"
 #include "nvim/api/private/helpers.h"
@@ -65,7 +66,9 @@ void nvim_ui_term_event(uint64_t channel_id, String event, Object value, Error *
     });
 
     const String termresponse = value.data.string;
+    termtrace_bytes("server: termresponse", termresponse.data, termresponse.size);
     set_vim_var_string(VV_TERMRESPONSE, termresponse.data, (ptrdiff_t)termresponse.size);
     do_termresponse_autocmd(termresponse);
+    termtrace("server: TermResponse autocommands done");
   }
 }

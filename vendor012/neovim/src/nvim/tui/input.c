@@ -24,6 +24,7 @@
 #include "nvim/tui/termkey/termkey_defs.h"
 #include "nvim/tui/tui.h"
 #include "nvim/ui_client.h"
+#include "nvim/os/termtrace.h"
 
 #ifdef MSWIN
 # include "nvim/os/os_win_console.h"
@@ -610,6 +611,7 @@ static void handle_term_response(TermInput *input, const TermKeyKey *key)
     }
 
     ADD_C(args, STRING_OBJ(cbuf_as_string(response.items, response.size)));
+    termtrace("tui: sends nvim_ui_term_event");
     rpc_send_event(ui_client_channel_id, "nvim_ui_term_event", args);
     kv_destroy(response);
   }
@@ -651,6 +653,7 @@ static void handle_primary_device_attr(TermInput *input, TermKeyCsiParam *params
   kv_push(response, 'c');
 
   ADD_C(args, STRING_OBJ(cbuf_as_string(response.items, response.size)));
+  termtrace("tui: sends nvim_ui_term_event");
   rpc_send_event(ui_client_channel_id, "nvim_ui_term_event", args);
 out:
   kv_destroy(response);
@@ -741,6 +744,7 @@ static void handle_unknown_csi(TermInput *input, const TermKeyKey *key)
       kv_printf(response, "\x1b[%dn", arg);
       ADD_C(args, STRING_OBJ(cbuf_as_string(response.items, response.size)));
 
+      termtrace("tui: sends nvim_ui_term_event");
       rpc_send_event(ui_client_channel_id, "nvim_ui_term_event", args);
       kv_destroy(response);
     } else if (nparams == 2) {
@@ -873,6 +877,7 @@ static size_t tinput_read_cb(RStream *stream, const char *buf, size_t count_, vo
 {
   TermInput *input = data;
 
+  termtrace_bytes(eof ? "tui: read (eof)" : "tui: read", buf, count_);
   size_t consumed = handle_raw_buffer(input, false, buf, count_);
   tinput_flush(input);
 

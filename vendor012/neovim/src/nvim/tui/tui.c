@@ -40,6 +40,7 @@
 #include "nvim/tui/ugrid.h"
 #include "nvim/types_defs.h"
 #include "nvim/ui_client.h"
+#include "nvim/os/termtrace.h"
 #include "nvim/ui_defs.h"
 #include "nvim/vim_defs.h"
 
@@ -1577,6 +1578,7 @@ void tui_ui_send(TUIData *tui, String content)
   FUNC_ATTR_NONNULL_ALL
 {
   uv_write_t req;
+  termtrace_bytes("tui: writes ui_send to the terminal", content.data, content.size);
   uv_buf_t buf = { .base = content.data, .len = UV_BUF_LEN(content.size) };
   int ret = uv_write(&req, (uv_stream_t *)&tui->output_handle, &buf, 1, NULL);
   if (ret) {
