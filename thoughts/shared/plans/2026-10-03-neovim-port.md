@@ -292,7 +292,7 @@ tcp_try_write_error (macOS answers ECONNRESET where the test wants EPIPE: host O
   tui_drive.py against it, then the m68k cross build; the host build also gives nlua0 and the
   runtime install.
 
-## Q checklist (20 items; 14 done, 6 open -- the rig, or a later run)
+## Q checklist (20 items; 15 done, 5 open)
 
 - [x] Q1 host PUC Lua 5.1 (arm64) generator Lua `build/v012/host/lua51` -- 5feee43
 - [x] Q2 libuv 1.52.1 backend (hand port of 802f46c + 0c7e217, + 1.52's new calls) -- cc57ff5;
@@ -310,7 +310,12 @@ tcp_try_write_error (macOS answers ECONNRESET where the test wants EPIPE: host O
       stripped; .text 6.56 MB (5.65 MB without parsers), .data 90 KB, .bss 130 KB.**
       (0.4.4: 3.0 MB stripped.)
 - [x] Q10 dist (`make -f Makefile.v012 dist`): build/v012/dist, 33 MB with runtime -- 4b41677
-- [ ] Q11 rig: `tools/nvim_rig.py --v012 --tui` (main session)
+- [x] Q11 rig: `tools/nvim_rig.py --v012 --tui` -- **run 4 (2026-10-03, dist 12:20): 9 of 9**
+      (fixes de1cc33, f77bcd7, 700fb87). Headless writefile 10.9 s, headless start with
+      defaults 37.5 s, TUI ready in 22 s; AvailMem 70,901,240 before, 61,163,408 with nvim
+      running (nvim uses 9,737,832 bytes, one process), 72,359,336 after quit; parser check
+      add=true true, help=true ft=help; VIMRUNTIME /VTCX/nvim012/nvim/share/nvim/runtime;
+      m68k bytecode (Q13) confirmed on the Amiga. Full output: main session's nvim_run4.txt.
       First run (2026-10-03): 6 of 8. Fixes 3a887e2 (rig) + de1cc33 (nvim), rerun pending:
       - E1568 at start: CPU, not the terminal. UP-Term answers OSC 11 + DSR in 1.4-2.1 ms
         (main session, raw mode); Nvim's own work in the 100 ms window is 107 us on the host
