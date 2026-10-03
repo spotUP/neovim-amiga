@@ -24,6 +24,13 @@ EXTERN int ui_client_error_exit INIT( = -1);
 /// Server exit code.
 EXTERN int ui_client_exit_status INIT( = 0);
 
+/// The built-in TUI runs in this process, on a loopback channel to this
+/// process's own editor (ui_client_start_inproc); ui_client_channel_id is
+/// then the client end. Code that means "this process is only a UI client"
+/// tests UI_CLIENT_ONLY.
+EXTERN bool ui_client_inproc INIT( = false);
+#define UI_CLIENT_ONLY (ui_client_channel_id != 0 && !ui_client_inproc)
+
 /// Whether ui client has sent nvim_ui_attach yet
 EXTERN bool ui_client_attached INIT( = false);
 

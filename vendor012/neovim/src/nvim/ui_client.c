@@ -152,6 +152,42 @@ void ui_client_detach(void)
   ui_client_attached = false;
 }
 
+/// Whether `nvim` in a terminal runs the TUI in-process (one process for
+/// the editor and its TUI) instead of spawning `nvim --embed`: the default
+/// on AmigaOS (no fork; a second copy of a multi-megabyte binary and of the
+/// Lua runtime), opt-in elsewhere. $NVIM_TUI_INPROC=1 or 0 overrides.
+bool ui_client_inproc_wanted(void)
+{
+  const char *v = os_getenv_noalloc("NVIM_TUI_INPROC");
+  if (v != NULL && *v != NUL) {
+    return strequal(v, "1");
+  }
+#ifdef __amigaos__
+  return true;
+#else
+  return false;
+#endif
+}
+
+/// Starts the built-in TUI in this process, on a loopback channel to this
+/// process's editor (channel_ui_loopback). Returns false if the channel
+/// could not be made. The caller then continues as the editor, which waits
+/// for this UI's nvim_ui_attach as an --embed server does.
+bool ui_client_start_inproc(void)
+{
+  const char *err = NULL;
+  uint64_t client = 0;
+  if (channel_ui_loopback(&client, &err) == 0) {
+    ELOG("in-process UI channel: %s", err ? err : "?");
+    return false;
+  }
+  ui_client_channel_id = client;
+  ui_client_inproc = true;
+  tui_start(&tui, &tui_width, &tui_height, &tui_term, &tui_rgb);
+  ui_client_attach(tui_width, tui_height, tui_term, tui_rgb);
+  return true;
+}
+
 void ui_client_run(void)
   FUNC_ATTR_NORETURN
 {

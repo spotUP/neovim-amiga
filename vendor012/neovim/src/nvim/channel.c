@@ -518,6 +518,42 @@ end:
   return channel->id;
 }
 
+/// An RPC channel on one end of a socketpair (channel_ui_loopback).
+static Channel *channel_from_socketpair_end(int fd)
+{
+  Channel *channel = channel_alloc(kChannelStreamSocket);
+  rstream_init_fd(&main_loop, &channel->stream.socket, fd);
+  channel->stream.socket.s.internal_close_cb = close_cb;
+  channel->stream.socket.s.internal_data = channel;
+  wstream_init(&channel->stream.socket.s, 0);
+  rpc_start(channel);
+  return channel;
+}
+
+/// The UI channel of a process that is its own UI client (the built-in TUI
+/// in-process, ui_client_start_inproc): two RPC channels on the ends of a
+/// socketpair, the editor's (what --embed makes of stdio) and the client's.
+/// Redraw events then take the same path as between two processes -- encoded
+/// on one end, decoded and drawn in the other end's read callback -- without
+/// a second process.
+///
+/// @param[out] client_id  the client's channel
+/// @return the editor's channel, or 0 (with errno-style error in `*error`)
+uint64_t channel_ui_loopback(uint64_t *client_id, const char **error)
+  FUNC_ATTR_NONNULL_ALL
+{
+  uv_os_sock_t fds[2];
+  int err = uv_socketpair(SOCK_STREAM, 0, fds, 0, 0);
+  if (err != 0) {
+    *error = uv_strerror(err);
+    return 0;
+  }
+  Channel *server = channel_from_socketpair_end(fds[0]);
+  Channel *client = channel_from_socketpair_end(fds[1]);
+  *client_id = client->id;
+  return server->id;
+}
+
 /// Creates an RPC channel from a tcp/pipe socket connection
 ///
 /// @param watcher The SocketWatcher ready to accept the connection

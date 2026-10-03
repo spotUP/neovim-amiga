@@ -84,6 +84,25 @@ check(data == 'hello amiga\n', 'tui-typed-text-saved', repr(data))
 check(b'\x1b[?1049h' in out, 'tui-alt-screen', 'no smcup in output')
 check(b'hello amiga' in out, 'tui-echoed-text', 'typed text never drawn')
 
+# 1b. the process model: NVIM_TUI_INPROC=1 -> no `nvim --embed` child (the
+#     TUI and the editor in one process); =0 -> exactly one such child
+mode = os.environ.get('NVIM_TUI_INPROC')
+if mode in ('0', '1'):
+    import subprocess
+    seen = {}
+    def count_children(fd, pid):
+        out = subprocess.run(['pgrep', '-P', str(pid)], capture_output=True, text=True).stdout
+        kids = [k for k in out.split() if k]
+        embeds = 0
+        for k in kids:
+            cmd = subprocess.run(['ps', '-o', 'command=', '-p', k], capture_output=True, text=True).stdout
+            embeds += '--embed' in cmd
+        seen['embeds'] = embeds
+    tmp, out, st = session([(count_children, 0.2), (b':q\r', 0.5)])
+    want = 0 if mode == '1' else 1
+    check(seen.get('embeds') == want, 'tui-process-model',
+          '%r --embed children, want %d' % (seen.get('embeds'), want))
+
 # 2. :! runs a shell command (uv_spawn) and the editor keeps going
 tmp, out, st = session([(b':r !echo spawned-ok\r', 1.5), (b':w out.txt\r', 0.5), (b':q!\r', 0.5)])
 try:

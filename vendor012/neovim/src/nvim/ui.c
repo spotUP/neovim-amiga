@@ -187,7 +187,7 @@ size_t ui_active(void)
 
 void ui_refresh(void)
 {
-  if (ui_client_channel_id) {
+  if (UI_CLIENT_ONLY) {
     abort();
   }
 
@@ -382,7 +382,7 @@ void ui_attach_impl(RemoteUI *ui, uint64_t chanid)
     abort();
   }
   if (!ui->ui_ext[kUIMultigrid] && !ui->ui_ext[kUIFloatDebug]
-      && !ui_client_channel_id) {
+      && !UI_CLIENT_ONLY) {
     ui_comp_attach(ui);
   }
 
@@ -539,7 +539,7 @@ int ui_current_col(void)
 
 void ui_flush(void)
 {
-  assert(!ui_client_channel_id);
+  assert(!UI_CLIENT_ONLY);
   if (!ui_active()) {
     return;
   }

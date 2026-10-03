@@ -362,7 +362,15 @@ int main(int argc, char **argv)
 
   bool remote_ui = (ui_client_channel_id != 0);
 
-  if (use_builtin_ui && !remote_ui) {
+  if (use_builtin_ui && !remote_ui && stdin_isatty && ui_client_inproc_wanted()) {
+    // One process for the editor and its TUI (AmigaOS default): the editor
+    // half below then behaves as an --embed server and waits for this UI.
+    if (!ui_client_start_inproc()) {
+      fprintf(stderr, "Failed to start the in-process UI!\n");
+      os_exit(1);
+    }
+    embedded_mode = true;
+  } else if (use_builtin_ui && !remote_ui) {
     ui_client_forward_stdin = !stdin_isatty;
     uint64_t rv = ui_client_start_server(get_vim_var_str(VV_PROGPATH),
                                          (size_t)params.argc, params.argv);
@@ -374,10 +382,10 @@ int main(int argc, char **argv)
   }
 
   // NORETURN: Start builtin UI client.
-  if (ui_client_channel_id) {
+  if (UI_CLIENT_ONLY) {
     ui_client_run();  // NORETURN
   }
-  assert(!ui_client_channel_id && !use_builtin_ui);
+  assert(!UI_CLIENT_ONLY && (!use_builtin_ui || ui_client_inproc));
   // Nvim server...
 
   if (!server_init(params.listen_addr)) {
@@ -713,7 +721,7 @@ void os_exit(int r)
 {
   exiting = true;
 
-  if (ui_client_channel_id) {
+  if (UI_CLIENT_ONLY) {
     ui_client_stop();
     if (r == 0) {
       r = ui_client_exit_status;
@@ -721,12 +729,15 @@ void os_exit(int r)
   } else {
     ui_flush();
     ui_call_stop();
+    if (ui_client_inproc) {
+      ui_client_stop();  // our own TUI: give the terminal back
+    }
   }
 
   if (!event_teardown() && r == 0) {
     r = 1;  // Exit with error if main_loop did not teardown gracefully.
   }
-  if (ui_client_channel_id) {
+  if (ui_client_channel_id) {  // a TUI in this process, alone or not
 #ifdef HAVE_TERMIOS_H
     // Sometimes the final output to TTY can be lost (at least on FreeBSD).
     // Call tcdrain() to ensure all output has been transmitted to host terminal.
@@ -738,7 +749,8 @@ void os_exit(int r)
       tcdrain(STDERR_FILENO);
     }
 #endif
-  } else {
+  }
+  if (!UI_CLIENT_ONLY) {
     ml_close_all(true);  // remove all memfiles
   }
   if (used_stdin) {
@@ -758,7 +770,7 @@ void os_exit(int r)
 void getout(int exitval)
   FUNC_ATTR_NORETURN
 {
-  assert(!ui_client_channel_id);
+  assert(!UI_CLIENT_ONLY);
   exiting = true;
 
   // make sure startuptimes have been flushed
@@ -919,7 +931,7 @@ void preserve_exit(const char *errmsg)
     bool has_eol = '\n' == errmsg[strlen(errmsg) - 1];
     fprintf(stderr, has_eol ? "%s" : "%s\n", errmsg);
   }
-  if (ui_client_channel_id) {
+  if (UI_CLIENT_ONLY) {
     os_exit(1);
   }
 
