@@ -20,7 +20,7 @@ COMPAT_HDRS = $(wildcard amiga/compat/include/*.h amiga/compat/include/*/*.h)
 # libamigacompat is the 0.4.4 Makefile's (one library for both targets)
 COMPAT_LIB  = build/m68k/libamigacompat.a
 
-.PHONY: all libs host-uvsmoke clean
+.PHONY: all libs host-uvsmoke checks clean
 all: libs
 libs: $(B)/libamigawide.a $(B)/libuv.a $(B)/liblua.a $(B)/libluv.a $(B)/liblpeg.a \
       $(B)/libunibilium.a $(B)/libutf8proc.a $(B)/libtree-sitter.a $(B)/parsers
@@ -81,6 +81,16 @@ $(H)/uvsmoke: tests/uvsmoke.c $(H)/libuv.a
 
 host-uvsmoke: $(H)/uvsmoke
 	$(H)/uvsmoke
+
+# checks that need no Amiga: the program path behind $VIMRUNTIME (host,
+# dos.library stubbed) and a 64-bit lua_Integer (m68k, compile only)
+$(H)/progpath_check: tests/progpath_check.c $(UV)/src/unix/amiga-os.c $(wildcard tests/progpath_stubs/*/*.h)
+	@mkdir -p $(H)
+	$(HOSTCC) -Wall -Itests/progpath_stubs -I$(UV)/src/unix -o $@ tests/progpath_check.c
+
+checks: $(H)/progpath_check
+	$(H)/progpath_check
+	$(AGCC) $(ACFLAGS) -I$(LUA) -fsyntax-only tests/luaint_check.c
 
 clean:
 	rm -rf build/v012
@@ -254,7 +264,7 @@ sysroot:
 # uvsmoke (libuv 1.52) and compat_probe go alongside.
 DIST = build/v012/dist/nvim
 TS_LINKED ?= vimdoc lua query markdown markdown_inline
-dist: $(B)/uvsmoke $(B)/compat_probe $(H)/lua51-m68kdump
+dist: checks $(B)/uvsmoke $(B)/compat_probe $(H)/lua51-m68kdump
 	ninja -C $(B)/nvim nvim_bin
 	ninja -C $(H)/nvim nvim
 	rm -rf $(H)/stage && DESTDIR=$(CURDIR)/$(H)/stage ninja -C $(H)/nvim install > $(H)/install.log

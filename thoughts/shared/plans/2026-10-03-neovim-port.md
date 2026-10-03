@@ -343,6 +343,25 @@ tcp_try_write_error (macOS answers ECONNRESET where the test wants EPIPE: host O
         (ixemul access() from stat mode bits). rig2.vim now prints each step
         (get_runtime, runtime_inspect, isdirectory, filereadable, fs_access, fs_stat,
         fs_lstat, glob) to RAM:nvts.txt; the next run names the failing call.
+      Third run: 7 of 9; the trace named two defects, both fixed on the host, rerun pending:
+      - FAIL 4 `vim.uv.hrtime() > 0` false (true in run 1): not the E-clock math (amiga/compat
+        clock_gettime is exact in 64 bits). PUC Lua 5.1's lua_Integer is ptrdiff_t, 32 bits on
+        m68k, and luv_hrtime does lua_pushinteger(uv_hrtime()): the ns count was truncated to
+        32 bits, so it wrapped every 4.3 s and was negative half the time. Fix: LUA_INTEGER
+        long long on __amigaos__ (vendor/lua/src/luaconf.h; the class: every 64-bit value luv
+        and Neovim push, file sizes included). Check: tests/luaint_check.c (m68k static assert,
+        fails on the old header); the rig asks hrtime() > 2^32 (always true after 4.3 s).
+        0.4.4 shares vendor/lua: it gets the same type when next rebuilt.
+      - FAIL 8 parser: in the TUI (started from vsh) $VIMRUNTIME fell back to /usr/local/share/nvim.
+        vsh runs a program with SetProgramName(argv[0]) + RunCommand and no SetProgramDir (V3),
+        and libuv's uv__amiga_program_path joined GetProgramDir() (vsh's VTCX:) with the name's
+        file part: "VTCX:nvim", so the prefix was "/". Fix (vendor012/libuv amiga-os.c): a
+        program name that holds a path (":" or "/", ixemul "/Vol/x" converted) is locked and
+        named itself; a bare name counts only if it exists in the program dir, else uv_exepath
+        fails and nvim falls back to argv[0] + $PATH. Check: tests/progpath_check.c (host,
+        dos.library stubbed; 5 of 6 fail on the old code). `make -f Makefile.v012 checks`
+        runs both, and dist depends on it.
+      - Noted: HOME is "/Ram Disk/T" in the TUI session (T: as HOME); fine for now.
 - [x] Q12 one process: loopback channel, default on AmigaOS -- ef057de; proof: host tui_drive.py
       9 of 9 in both modes incl. the process-model sentinel; host RSS 9.5 MB vs 16.2 MB.
       Rig numbers (AvailMem) come from Q11.
@@ -438,3 +457,8 @@ Plan:
   replacement glyph.
 - **V2 (from the rig run)** vsh does not find a program by a Unix path (/VTC/nvim-test/...);
   Amiga paths work.
+- **V3 (0.12.5 rig, run 3)** vsh's runner calls SetProgramName(argv[0]) and RunCommand but
+  never SetProgramDir, so a program it runs sees GetProgramDir() = vsh's own directory
+  (shell/vsh.c runner(), ~line 370). The AmigaOS Shell sets both. Request: SetProgramDir(the
+  parent lock of the file resolve() loaded) around RunCommand, restored after. nvim no longer
+  depends on it (libuv's program path now resolves a program name that holds a path first).

@@ -151,7 +151,7 @@ def main():
     # ixemul's argv parsing honours a quote only at the start of a word:
     # +"call f(a, b)" splits at the spaces, "+call f(a, b)" stays whole
     rc, out = run(NV + ' -u NONE -i NONE --headless '
-                  '"+call writefile([string(1 + 1), eval(\'$\' . \'VIMRUNTIME\'), string(luaeval(\'(vim.uv or vim.loop).hrtime() > 0\'))], \'RAM:nvh.txt\')" '
+                  '"+call writefile([string(1 + 1), eval(\'$\' . \'VIMRUNTIME\'), string(luaeval(\'(vim.uv or vim.loop).hrtime() > 4294967296\'))], \'RAM:nvh.txt\')" '
                   '+qa!', 300)
     secs = time.time() - t0
     got = run('Type RAM:nvh.txt')[1]
