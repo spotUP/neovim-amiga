@@ -35,7 +35,7 @@
 #include <unistd.h>
 #include <limits.h> /* IOV_MAX */
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(UV_POSIX_POLL)
 # include <sys/event.h>
 # include <sys/time.h>
 # include <sys/select.h>
@@ -108,7 +108,7 @@ void uv__stream_init(uv_loop_t* loop,
       loop->emfile_fd = err;
   }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(UV_POSIX_POLL)
   stream->select = NULL;
 #endif /* defined(__APPLE_) */
 
@@ -117,7 +117,7 @@ void uv__stream_init(uv_loop_t* loop,
 
 
 static void uv__stream_osx_interrupt_select(uv_stream_t* stream) {
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(UV_POSIX_POLL)
   /* Notify select() thread about state change */
   uv__stream_select_t* s;
   int r;
@@ -141,7 +141,7 @@ static void uv__stream_osx_interrupt_select(uv_stream_t* stream) {
 }
 
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(UV_POSIX_POLL)
 static void uv__stream_osx_select(void* arg) {
   uv_stream_t* stream;
   uv__stream_select_t* s;
@@ -1153,6 +1153,14 @@ static void uv__read(uv_stream_t* stream) {
        */
       if (nread < buflen)
         return;
+#if defined(__amigaos__)
+      /* A tty left blocking (tty.c never reopens one here, so it keeps the
+       * shared console's blocking mode): poll said one read would not
+       * block, a second one might, until the user types. One read per
+       * readiness; the loop comes back while there is more. */
+      if (stream->flags & UV_HANDLE_BLOCKING_WRITES)
+        return;
+#endif
     }
   }
 }
@@ -1495,7 +1503,7 @@ int uv_is_writable(const uv_stream_t* stream) {
 }
 
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(UV_POSIX_POLL)
 int uv___stream_fd(const uv_stream_t* handle) {
   const uv__stream_select_t* s;
 
@@ -1516,7 +1524,7 @@ void uv__stream_close(uv_stream_t* handle) {
   unsigned int i;
   uv__stream_queued_fds_t* queued_fds;
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(UV_POSIX_POLL)
   /* Terminate select loop first */
   if (handle->select != NULL) {
     uv__stream_select_t* s;

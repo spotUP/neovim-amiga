@@ -1,0 +1,98 @@
+# Neovim 0.12.5 for AmigaOS 3.x / 68020 / ixemul 48.2 -- the second target
+# (ledger section Q). The 0.4.4 baseline is the plain Makefile; this one
+# builds only from vendor012/ into build/v012/, sharing amiga/compat.
+#
+#   make -f Makefile.v012              m68k libraries (build/v012/m68k/lib*.a)
+#   make -f Makefile.v012 host-uvsmoke libuv 1.52 backend on this Mac + smoke test
+AMIGA   ?= $(HOME)/opt/amiga
+AGCC    ?= $(AMIGA)/bin/m68k-amigaos-gcc
+AAR     ?= $(AMIGA)/bin/m68k-amigaos-ar
+ACFLAGS ?= -mcrt=ixemul -m68020 -O2 -fno-strict-aliasing -Wall -Wno-unused \
+           -Wno-pointer-sign
+ALDFLAGS ?= -mcrt=ixemul
+HOSTCC  ?= cc
+V       = vendor012
+B       = build/v012/m68k
+H       = build/v012/host
+
+COMPAT_INC  = -Iamiga/compat/include
+COMPAT_HDRS = $(wildcard amiga/compat/include/*.h amiga/compat/include/*/*.h)
+# libamigacompat is the 0.4.4 Makefile's (one library for both targets)
+COMPAT_LIB  = build/m68k/libamigacompat.a
+
+.PHONY: all libs host-uvsmoke clean
+all: libs
+libs: $(B)/libuv.a
+
+$(COMPAT_LIB): $(wildcard amiga/compat/*.c) $(COMPAT_HDRS)
+	$(MAKE) build/m68k/libamigacompat.a
+
+# ---- libuv 1.52.1: the UNIX core, posix-poll, no threads (as 1.30's port) --
+UV      = $(V)/libuv
+UV_COMMON = fs-poll.c idna.c inet.c random.c strscpy.c strtok.c thread-common.c \
+            threadpool.c timer.c uv-common.c uv-data-getter-setters.c version.c
+UV_UNIX = async.c core.c dl.c fs.c getaddrinfo.c getnameinfo.c loop-watcher.c \
+          loop.c pipe.c poll.c process.c signal.c stream.c tcp.c tty.c udp.c \
+          posix-poll.c no-fsevents.c no-proctitle.c nothreads.c amiga.c amiga-os.c \
+          random-devurandom.c
+UV_SRCS = $(addprefix src/,$(UV_COMMON)) $(addprefix src/unix/,$(UV_UNIX))
+UV_INC  = -I$(UV)/include -I$(UV)/src
+UV_OBJS = $(addprefix $(B)/libuv/,$(UV_SRCS:.c=.o))
+UV_HDRS = $(wildcard $(UV)/include/*.h $(UV)/include/uv/*.h $(UV)/src/*.h \
+            $(UV)/src/unix/*.h)
+
+$(B)/libuv/%.o: $(UV)/%.c $(UV_HDRS) $(COMPAT_HDRS)
+	@mkdir -p $(dir $@)
+	$(AGCC) $(ACFLAGS) $(COMPAT_INC) $(UV_INC) -c -o $@ $<
+
+$(B)/libuv.a: $(UV_OBJS)
+	rm -f $@
+	$(AAR) rcs $@ $(UV_OBJS)
+
+$(B)/uvsmoke: tests/uvsmoke.c $(B)/libuv.a $(COMPAT_LIB)
+	$(AGCC) $(ACFLAGS) $(COMPAT_INC) -I$(UV)/include -c -o $(B)/uvsmoke.o tests/uvsmoke.c
+	$(AGCC) $(ALDFLAGS) -o $@ $(B)/uvsmoke.o $(B)/libuv.a $(COMPAT_LIB) -lixcompat
+
+# ---- the same libuv on this Mac (UV_NO_THREADS, UV_POSIX_POLL) -------------
+IXCOMPAT ?= $(HOME)/Code/ixemul-vtcon/compat
+HCFLAGS = -O1 -g -Wall -Wno-unused -Wno-deprecated-declarations \
+          -DUV_NO_THREADS -DUV_POSIX_POLL -Dpoll=uvhost_select_poll \
+          -D_DARWIN_UNLIMITED_SELECT=0 -I$(UV)/include -I$(UV)/src
+H_UV_OBJS = $(filter-out $(H)/libuv/src/unix/amiga-os.o,\
+              $(addprefix $(H)/libuv/,$(UV_SRCS:.c=.o))) $(H)/libuv/ixpoll.o \
+            $(H)/libuv/src/unix/random-getentropy.o
+
+$(H)/libuv/%.o: $(UV)/%.c $(UV_HDRS)
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(HCFLAGS) -c -o $@ $<
+
+$(H)/libuv/ixpoll.o: $(IXCOMPAT)/poll.c
+	@mkdir -p $(dir $@)
+	$(HOSTCC) $(HCFLAGS) -c -o $@ $<
+
+$(H)/libuv.a: $(H_UV_OBJS)
+	rm -f $@
+	ar rcs $@ $(H_UV_OBJS)
+
+$(H)/uvsmoke: tests/uvsmoke.c $(H)/libuv.a
+	$(HOSTCC) $(HCFLAGS) -o $@ tests/uvsmoke.c $(H)/libuv.a
+
+host-uvsmoke: $(H)/uvsmoke
+	$(H)/uvsmoke
+
+clean:
+	rm -rf build/v012
+
+# libuv's own test runner over the host build (UVT=v012 tools/uv-host-tests.sh)
+UV_TEST_SRCS = $(filter-out $(UV)/test/benchmark-% $(UV)/test/runner-win.c \
+                 $(UV)/test/run-benchmarks.c $(UV)/test/echo-server.c \
+                 $(UV)/test/blackhole-server.c,$(wildcard $(UV)/test/*.c))
+$(H)/uv-run-tests: $(UV_TEST_SRCS) $(H)/libuv.a
+	$(HOSTCC) $(HCFLAGS) -w -Wno-error=int-conversion -include pthread.h -I$(UV)/test -o $@ $(UV_TEST_SRCS) \
+	  $(UV)/test/echo-server.c $(UV)/test/blackhole-server.c $(H)/libuv.a -lpthread
+
+# libamigacompat's AmigaOS parts (atomics, clocks), self-checking on the rig
+$(B)/compat_probe: tests/compat_probe.c $(COMPAT_LIB)
+	@mkdir -p $(B)
+	$(AGCC) $(ACFLAGS) $(COMPAT_INC) -c -o $(B)/compat_probe.o tests/compat_probe.c
+	$(AGCC) $(ALDFLAGS) -o $@ $(B)/compat_probe.o $(COMPAT_LIB) -lixcompat

@@ -843,6 +843,7 @@ static int uv__udp_set_membership6(uv_udp_t* handle,
     !defined(__ANDROID__) &&                                        \
     !defined(__DragonFly__) &&                                      \
     !defined(__GNU__) &&                                            \
+    !defined(__amigaos__) &&  /* ixemul's stack: no source multicast */ \
     !defined(QNX_IOPKT)
 static int uv__udp_set_source_membership4(uv_udp_t* handle,
                                           const struct sockaddr_in* multicast_addr,
@@ -1055,6 +1056,7 @@ int uv_udp_set_source_membership(uv_udp_t* handle,
     !defined(__ANDROID__) &&                                        \
     !defined(__DragonFly__) &&                                      \
     !defined(__GNU__) &&                                          \
+    !defined(__amigaos__) &&                                      \
     !defined(QNX_IOPKT)
   int err;
   union uv__sockaddr mcast_addr;

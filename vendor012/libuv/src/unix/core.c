@@ -1618,8 +1618,12 @@ int uv_os_unsetenv(const char* name) {
   if (name == NULL)
     return UV_EINVAL;
 
+#if defined(__amigaos__)
+  unsetenv(name);  /* ixemul's is the 4.3BSD one: it returns void */
+#else
   if (unsetenv(name) != 0)
     return UV__ERR(errno);
+#endif
 
   return 0;
 }
@@ -1717,6 +1721,23 @@ int uv_os_setpriority(uv_pid_t pid, int priority) {
 #endif
 }
 
+#if defined(UV_NO_THREADS)
+/* One thread per process (AmigaOS + ixemul): no thread scheduling to ask
+ * or set. */
+int uv_thread_getpriority(uv_thread_t tid, int* priority) {
+  (void) tid;
+  if (priority == NULL)
+    return UV_EINVAL;
+  return UV_ENOSYS;
+}
+
+
+int uv_thread_setpriority(uv_thread_t tid, int priority) {
+  (void) tid;
+  (void) priority;
+  return UV_ENOSYS;
+}
+#else
 /**
  * If the function succeeds, the return value is 0.
  * If the function fails, the return value is non-zero.
@@ -1846,6 +1867,7 @@ int uv_thread_setpriority(uv_thread_t tid, int priority) {
   return 0;
 #endif  /* !defined(__GNU__) */
 }
+#endif /* UV_NO_THREADS */
 
 int uv_os_uname(uv_utsname_t* buffer) {
   struct utsname buf;

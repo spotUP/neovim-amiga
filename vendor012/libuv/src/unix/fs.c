@@ -70,7 +70,8 @@
     defined(__DragonFly__)        ||                                      \
     defined(__FreeBSD__)          ||                                      \
     defined(__OpenBSD__)          ||                                      \
-    defined(__NetBSD__)
+    defined(__NetBSD__)           ||                                      \
+    defined(__amigaos__)  /* ixemul is 4.4BSD: statfs in sys/mount.h */
 # include <sys/param.h>
 # include <sys/mount.h>
 #elif defined(__sun)      || \
@@ -561,9 +562,23 @@ static int uv__fs_scandir_filter(const uv__dirent_t* dent) {
 }
 
 
+#if defined(__amigaos__)
+/* ixemul's scandir takes the 4.4BSD prototypes: a non-const filter and a
+ * qsort-style comparator. */
+static int uv__fs_scandir_sort(const void* a, const void* b) {
+  return strcmp((*(const uv__dirent_t* const*) a)->d_name,
+                (*(const uv__dirent_t* const*) b)->d_name);
+}
+
+static int uv__fs_scandir_filter_bsd(struct dirent* dent) {
+  return uv__fs_scandir_filter(dent);
+}
+#define uv__fs_scandir_filter uv__fs_scandir_filter_bsd
+#else
 static int uv__fs_scandir_sort(const uv__dirent_t** a, const uv__dirent_t** b) {
   return strcmp((*a)->d_name, (*b)->d_name);
 }
+#endif
 
 
 static ssize_t uv__fs_scandir(uv_fs_t* req) {
@@ -1153,6 +1168,15 @@ static ssize_t uv__fs_utime(uv_fs_t* req) {
   ts[0] = uv__fs_to_timespec(req->atime);
   ts[1] = uv__fs_to_timespec(req->mtime);
   return utimensat(AT_FDCWD, req->path, ts, 0);
+#elif defined(__amigaos__)
+  /* ixemul: utimes(), microseconds (AmigaOS keeps one date per file, the
+     modification date, in 1/50 s ticks: the access time is dropped) */
+  struct timeval tv[2];
+  tv[0].tv_sec = (long) req->atime;
+  tv[0].tv_usec = (long) ((req->atime - (double) tv[0].tv_sec) * 1e6);
+  tv[1].tv_sec = (long) req->mtime;
+  tv[1].tv_usec = (long) ((req->mtime - (double) tv[1].tv_sec) * 1e6);
+  return utimes(req->path, tv);
 #elif defined(_AIX) && !defined(_AIX71)
   struct utimbuf buf;
   buf.actime = req->atime;
@@ -1311,6 +1335,21 @@ static ssize_t uv__fs_copyfile(uv_fs_t* req) {
   /**
    * Change the timestamps of the destination file to match the source file.
    */
+#if defined(__amigaos__)
+  /* ixemul has no futimens/futimes: set them through the path */
+  {
+    struct timeval tv[2];
+    tv[0].tv_sec = src_statsbuf.st_atime;
+    tv[0].tv_usec = 0;
+    tv[1].tv_sec = src_statsbuf.st_mtime;
+    tv[1].tv_usec = 0;
+    if (utimes(req->new_path, tv) == -1) {
+      err = UV__ERR(errno);
+      goto out;
+    }
+  }
+  (void) times;
+#else
 #if defined(__APPLE__)
   times[0] = src_statsbuf.st_atimespec;
   times[1] = src_statsbuf.st_mtimespec;
@@ -1328,6 +1367,7 @@ static ssize_t uv__fs_copyfile(uv_fs_t* req) {
     err = UV__ERR(errno);
     goto out;
   }
+#endif /* __amigaos__ */
 
   /*
    * Change the ownership and permissions of the destination file to match the

@@ -297,11 +297,12 @@ void uv__udp_io(uv_loop_t* loop, uv__io_t* w, unsigned int events);
 #define uv__ahafs_event(loop, w, events) UNREACHABLE()
 #endif
 
-#if !defined(__APPLE__) &&                                                    \
+#if defined(UV_POSIX_POLL) || /* no kqueue: the host test build */           \
+    (!defined(__APPLE__) &&                                                   \
     !defined(__DragonFly__) &&                                                \
     !defined(__FreeBSD__) &&                                                  \
     !defined(__NetBSD__) &&                                                   \
-    !defined(__OpenBSD__)
+    !defined(__OpenBSD__))
 #define uv__fs_event(loop, w, events) UNREACHABLE()
 #endif
 
@@ -347,7 +348,7 @@ void uv__stream_init(uv_loop_t* loop, uv_stream_t* stream,
     uv_handle_type type);
 int uv__stream_open(uv_stream_t*, int fd, int flags);
 void uv__stream_destroy(uv_stream_t* stream);
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(UV_POSIX_POLL)
 int uv__stream_try_select(uv_stream_t* stream, int* fd);
 #endif /* defined(__APPLE__) */
 void uv__server_io(uv_loop_t* loop, uv__io_t* w, unsigned int events);
@@ -447,7 +448,7 @@ int uv__iou_fs_unlink(uv_loop_t* loop, uv_fs_t* req);
 #define uv__iou_fs_unlink(loop, req) 0
 #endif
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !defined(UV_POSIX_POLL)
 int uv___stream_fd(const uv_stream_t* handle);
 #define uv__stream_fd(handle) (uv___stream_fd((const uv_stream_t*) (handle)))
 #else
@@ -574,7 +575,8 @@ int uv__get_constrained_cpu(long long* quota);
 #endif
 #endif
 
-#if defined(EVFILT_USER) && defined(NOTE_TRIGGER)
+/* (not under UV_POSIX_POLL: there is no kqueue to trigger) */
+#if defined(EVFILT_USER) && defined(NOTE_TRIGGER) && !defined(UV_POSIX_POLL)
 /* EVFILT_USER is available since OS X 10.6, DragonFlyBSD 4.0,
  * FreeBSD 8.1, and NetBSD 10.0.
  *

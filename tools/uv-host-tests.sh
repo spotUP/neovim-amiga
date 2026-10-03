@@ -6,17 +6,24 @@
 #   tools/uv-host-tests.sh                  every test not yet recorded
 #   tools/uv-host-tests.sh name...          just these (re-run, re-recorded)
 #   tools/uv-host-tests.sh --failed         re-run the recorded failures
+# UVT=v012 runs the 0.12 port's libuv 1.52 (build/v012/host) instead of
+# the 0.4.4 baseline's libuv 1.30 (build/host).
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-RUN=$ROOT/build/host/uv-run-tests
-LOG=$ROOT/build/host/uv-tests.tsv
-OUT=$ROOT/build/host/uv-tests-out
+if [ "${UVT:-}" = v012 ]; then
+	HB=$ROOT/build/v012/host; UVSRC=$ROOT/vendor012/libuv
+else
+	HB=$ROOT/build/host; UVSRC=$ROOT/vendor/libuv
+fi
+RUN=$HB/uv-run-tests
+LOG=$HB/uv-tests.tsv
+OUT=$HB/uv-tests-out
 mkdir -p "$OUT"
 touch "$LOG"
 # tests open test/fixtures/... relative to the cwd and leave files there
 # (watch_dir, watch_file): a scratch cwd in build/, not the vendor tree
-CWD=$ROOT/build/host/uv-cwd
-mkdir -p "$CWD" && ln -sfn "$ROOT/vendor/libuv/test" "$CWD/test"
+CWD=$HB/uv-cwd
+mkdir -p "$CWD" && ln -sfn "$UVSRC/test" "$CWD/test"
 cd "$CWD" || exit 1
 
 if [ $# -gt 0 ] && [ "$1" = "--failed" ]; then

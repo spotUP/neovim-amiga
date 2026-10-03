@@ -23,7 +23,7 @@
 #include "uv-common.h"
 
 #include <stdlib.h>
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(UV_NO_THREADS)
 #include <pthread.h>
 #endif
 

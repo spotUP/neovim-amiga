@@ -27,6 +27,87 @@
 
 #include <stdlib.h>
 
+#if defined(UV_NO_THREADS)
+/* One thread per process (AmigaOS + ixemul): no pool. A submitted request
+ * waits on its loop's queue and runs, work then done, when the loop next
+ * services wq_async -- never inside the call that submitted it, as with a
+ * pool whose threads are all busy. Blocking work (a slow read, a name
+ * lookup) blocks the loop for its duration: there is nowhere else to run it.
+ * A request is cancellable until the loop starts it. */
+static void uv__cancelled(struct uv__work* w) {
+  abort();
+}
+
+
+void uv__threadpool_cleanup(void) {
+}
+
+
+void uv__work_submit(uv_loop_t* loop,
+                     struct uv__work* w,
+                     enum uv__work_kind kind,
+                     void (*work)(struct uv__work* w),
+                     void (*done)(struct uv__work* w, int status)) {
+  (void) kind;
+  w->loop = loop;
+  w->work = work;
+  w->done = done;
+  uv__queue_insert_tail(&loop->wq, &w->wq);
+  uv_async_send(&loop->wq_async);
+}
+
+
+static int uv__work_cancel(uv_loop_t* loop, uv_req_t* req, struct uv__work* w) {
+  (void) loop;
+  (void) req;
+  /* started (or finished): the work pointer is NULL or the queue link was
+     re-initialised when the loop took it */
+  if (uv__queue_empty(&w->wq) || w->work == NULL || w->work == uv__cancelled)
+    return UV_EBUSY;
+  w->work = uv__cancelled;  /* stays queued; done reports UV_ECANCELED */
+  return 0;
+}
+
+
+void uv__work_done(uv_async_t* handle) {
+  struct uv__work* w;
+  uv_loop_t* loop;
+  struct uv__queue* q;
+  struct uv__queue wq;
+  int err;
+  int nevents;
+
+  loop = container_of(handle, uv_loop_t, wq_async);
+  /* what the callbacks below submit waits for the next iteration */
+  uv__queue_move(&loop->wq, &wq);
+
+  nevents = 0;
+  while (!uv__queue_empty(&wq)) {
+    q = uv__queue_head(&wq);
+    uv__queue_remove(q);
+    uv__queue_init(q);  /* uv_cancel() from here on: UV_EBUSY */
+
+    w = container_of(q, struct uv__work, wq);
+    if (w->work == uv__cancelled) {
+      err = UV_ECANCELED;
+    } else {
+      w->work(w);
+      w->work = NULL;
+      err = 0;
+    }
+    w->done(w, err);
+    nevents++;
+  }
+
+  /* as the threaded uv__work_done counts them */
+  if (nevents > 1) {
+    uv__metrics_inc_events(loop, nevents - 1);
+    if (uv__get_internal_fields(loop)->current_timeout == 0)
+      uv__metrics_inc_events_waiting(loop, nevents - 1);
+  }
+}
+
+#else /* !UV_NO_THREADS */
 #define MAX_THREADPOOL_SIZE 1024
 
 static uv_once_t once = UV_ONCE_INIT;
@@ -354,6 +435,9 @@ void uv__work_done(uv_async_t* handle) {
       uv__metrics_inc_events_waiting(loop, nevents - 1);
   }
 }
+
+
+#endif /* UV_NO_THREADS */
 
 
 static void uv__queue_work(struct uv__work* w) {

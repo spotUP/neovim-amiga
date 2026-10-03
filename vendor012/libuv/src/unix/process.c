@@ -266,6 +266,25 @@ static void uv__process_close_stream(uv_stdio_container_t* container) {
 }
 
 
+#if defined(__amigaos__) && !defined(UV__SPAWN_VFORK)
+# define UV__SPAWN_VFORK 1
+#endif
+
+#if defined(UV__SPAWN_VFORK)
+/* AmigaOS has no fork(): children start with ixemul's vfork(), whose child
+ * shares our data and heap (not our stack, which it gets a copy of) and
+ * holds us until it calls execve() or _exit(). So the child hands its exec
+ * error back through this shared variable instead of the close-on-exec pipe
+ * the fork() path needs: when vfork() returns here, the child has either
+ * exec'd (0) or failed and exited (the error). */
+static volatile int uv__vfork_child_err;
+
+static void uv__write_int(int fd, int val) {
+  (void) fd;
+  uv__vfork_child_err = val;
+  _exit(127);
+}
+#else
 static void uv__write_int(int fd, int val) {
   ssize_t n;
 
@@ -277,6 +296,7 @@ static void uv__write_int(int fd, int val) {
    * but we have nothing left but to _exit ourself now too. */
   _exit(127);
 }
+#endif
 
 
 static void uv__write_errno(int error_fd) {
@@ -897,6 +917,36 @@ static int uv__spawn_and_init_child(
   if (err != UV_ENOSYS)
     return err;
 
+#endif
+
+#if defined(UV__SPAWN_VFORK)
+  (void) signal_pipe;
+  (void) r;
+  (void) exec_errorno;
+  {
+    /* the child sets environ to options->env before its exec, in memory
+     * it shares with us: put ours back once it has let us go */
+    char** saved_environ = environ;
+
+    uv__vfork_child_err = 0;
+    *pid = vfork();
+    if (*pid == 0) {
+      uv__process_child_init(options, stdio_count, pipes, -1);
+      abort();
+    }
+    environ = saved_environ;
+  }
+  if (*pid == -1)
+    return UV__ERR(errno);
+  err = uv__vfork_child_err;
+  if (err != 0) {
+    int werr;
+    do
+      werr = waitpid(*pid, &status, 0);  /* reap the child that failed */
+    while (werr == -1 && errno == EINTR);
+    assert(werr == *pid);
+  }
+  return err;
 #endif
 
   /* This pipe is used by the parent to wait until

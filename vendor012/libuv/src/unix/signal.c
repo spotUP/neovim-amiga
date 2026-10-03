@@ -62,6 +62,7 @@ RB_GENERATE_STATIC(uv__signal_tree_s,
 static void uv__signal_global_reinit(void);
 
 static void uv__signal_global_init(void) {
+#if !defined(UV_NO_THREADS)
   if (uv__signal_lock_pipefd[0] == -1)
     /* pthread_atfork can register before and after handlers, one
      * for each child. This only registers one for the child. That
@@ -71,6 +72,9 @@ static void uv__signal_global_init(void) {
      */
     if (pthread_atfork(NULL, NULL, &uv__signal_global_reinit))
       abort();
+#endif
+  /* UV_NO_THREADS (AmigaOS): no pthread_atfork. Children are vfork + exec
+     (process.c), which never run libuv after the fork. */
 
   uv__signal_global_reinit();
 }
