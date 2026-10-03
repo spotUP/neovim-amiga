@@ -254,10 +254,14 @@ sysroot:
 # uvsmoke (libuv 1.52) and compat_probe go alongside.
 DIST = build/v012/dist/nvim
 TS_LINKED ?= vimdoc lua query markdown markdown_inline
-dist: $(B)/uvsmoke $(B)/compat_probe
+dist: $(B)/uvsmoke $(B)/compat_probe $(H)/lua51-m68kdump
 	ninja -C $(B)/nvim nvim_bin
 	ninja -C $(H)/nvim nvim
 	rm -rf $(H)/stage && DESTDIR=$(CURDIR)/$(H)/stage ninja -C $(H)/nvim install > $(H)/install.log
+	# the host build links the same parsers statically: markers there too
+	# (this runtime stays source Lua: the host nvim runs it, tools/user-config.sh)
+	mkdir -p $(H)/stage/usr/local/share/nvim/runtime/parser
+	for p in $(TS_LINKED); do : > $(H)/stage/usr/local/share/nvim/runtime/parser/$$p.so; done
 	rm -rf build/v012/dist && mkdir -p $(DIST)/bin $(DIST)/share/nvim
 	$(AMIGA)/bin/m68k-amigaos-strip -o $(DIST)/bin/nvim $(B)/nvim/bin/nvim
 	chmod +x $(DIST)/bin/nvim
@@ -268,6 +272,8 @@ dist: $(B)/uvsmoke $(B)/compat_probe
 	# runtime file over that, a keymap, is left out (ledger section Q)
 	rm -f $(DIST)/share/nvim/runtime/keymap/brazilian_portuguese-compact.vim
 	! find $(DIST) -exec basename {} \; | awk 'length($$0)>30' | grep .
+	# runtime/lua as m68k bytecode, same file names (ledger Q13)
+	$(H)/lua51-m68kdump tools/precompile-lua.lua $$(find $(DIST)/share/nvim/runtime/lua -name '*.lua')
 	cp $(B)/uvsmoke $(B)/compat_probe build/v012/dist/
 	ls -l $(DIST)/bin/nvim
 

@@ -18,7 +18,7 @@ REPO=${1:-https://github.com/tomviljo/dotfiles}
 REV=${2:-c36d479e3de70a23f96319ba35b2c5d24b686051}
 OUT=$ROOT/build/v012/userconf
 NVIM=$ROOT/build/v012/host/nvim/bin/nvim
-RT=$ROOT/build/v012/dist/nvim/share/nvim/runtime
+RT=$ROOT/build/v012/host/stage/usr/local/share/nvim/runtime   # source Lua (dist has m68k bytecode)
 PLUG_URL=https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim
 [ -x "$NVIM" ] && [ -d "$RT" ] || { echo "make -f Makefile.v012 dist first"; exit 1; }
 
