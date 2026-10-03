@@ -140,7 +140,16 @@
 ** CHANGE that if ptrdiff_t is not adequate on your machine. (On most
 ** machines, ptrdiff_t gives a good choice between int or long.)
 */
+#if defined(__amigaos__)
+/* AmigaOS/m68k: ptrdiff_t is 32 bits, and luv and Neovim push 64-bit
+** values through lua_pushinteger (uv.hrtime() in ns, file sizes, 64-bit
+** offsets): a 32-bit lua_Integer truncates them before they become a
+** lua_Number (hrtime() went negative every other 4.3 s). 64 bits as on
+** the 64-bit hosts; a double holds them to 2^53. */
+#define LUA_INTEGER	long long
+#else
 #define LUA_INTEGER	ptrdiff_t
+#endif
 
 
 /*
