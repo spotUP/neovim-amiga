@@ -16,7 +16,8 @@ Finish line for this run: every dependency cross-built, libuv backend built and 
 Neovim linked for m68k-amigaos-ixemul, and the exact rig steps written down for the main
 session (this agent does not touch the rig). **Status: 33 of 35 done; first rig run
 (vtcon main session, 2026-10-03) passed 7 of 7. Open: E1 (:terminal on the rig), E2 (speed).
-Baseline tagged `amiga-0.4.4-1`; the 0.12.5 port is planned in section Q below.**
+Baseline tagged `amiga-0.4.4-1`. Neovim 0.12.5 (section Q): links for m68k, 14 of 20 done;
+next is the rig run `tools/nvim_rig.py --v012 --tui`.**
 
 ## Decisions (do not re-litigate)
 
@@ -59,7 +60,7 @@ Baseline tagged `amiga-0.4.4-1`; the 0.12.5 port is planned in section Q below.*
   posix-poll libuv, so the UV_NO_THREADS paths (TUI on the main loop, the work queue) are
   tested off the Amiga; only the `__amigaos__` paths (vfork, PTY:, E-clock, exepath) need the rig.
 
-## Checklist (35 items; 31 done, 4 open)
+## Checklist (0.4.4; 35 items; 33 done, 2 open)
 
 ### A. Repository and host tools
 - [x] A1 repo, pristine sources in `vendor/` -- 829909a
@@ -185,7 +186,20 @@ tcp_try_write_error (macOS answers ECONNRESET where the test wants EPIPE: host O
 - Neovim 0.4.4's own host quirks: os/lang.c needs `-include locale.h` on macOS, and its LuaJIT
   link flags (`-pagezero_size`) make a malformed arm64 binary (now only with LuaJIT).
 
-## Rig steps (for the main session; this agent never drives the rig)
+## Rig steps, 0.12.5 (for the main session)
+
+1. `cd ~/Code/neovim-amiga && make -f Makefile.v012 dist` (built: build/v012/dist, 33 MB).
+2. Rig up, kit not installed; the target volume must take long file names (the rig's host dir does).
+3. `python3 ~/Code/neovim-amiga/tools/nvim_rig.py --v012 --tui` -- copies build/v012/dist to
+   `~/Code/vtcon/build/rig/vtc/nvim012/`, then: uvsmoke (libuv 1.52), compat_probe (atomics,
+   clocks), --version, headless writefile (runtime, vim.uv), system(), headless start time with
+   defaults, the TUI (one process) with AvailMem before/during/after, :help + the vimdoc parser
+   through the static uv_dlopen, typed text saved; screenshot build/rig/nvim012_tui.png.
+4. Send back all output and the screenshot. The first thing to look at if it fails at once:
+   "bad header in precompiled chunk" = the m68k bytecode (Q13) is wrong; rebuild with
+   `-DCOMPILE_LUA=OFF` (tools/configure-nvim012.sh) to separate that from everything else.
+
+## Rig steps, 0.4.4 (for the main session; this agent never drives the rig)
 
 1. `cd ~/Code/neovim-amiga && make dist` (already built: build/m68k/dist).
 2. Rig up (`cd ~/Code/vtcon && python3 tools/rig/rig.py start`), kit not installed.
@@ -253,19 +267,18 @@ tcp_try_write_error (macOS answers ECONNRESET where the test wants EPIPE: host O
 
 ## Q decisions
 
-- **Q-D1 Process model: one process on AmigaOS** (loopback channel, above), as the default
-  for `nvim` in a terminal; `--embed` and `--remote-ui` keep working as upstream. Order: first
-  the upstream two-process start (no UI patches; uv_spawn+socketpair stdio is proven on the
-  rig by system()), so the port has a working baseline; then the loopback, measured against
-  it (memory: AvailMem before/after; start time). Two processes stay selectable
-  (`NVIM_AMIGA_TWO_PROCESS=1`) until the loopback has passed the TUI tests.
+- **Q-D1 Process model: one process on AmigaOS** (loopback channel, above), the default for
+  `nvim` in a terminal with a tty on stdin; `--embed` and `--remote-ui` work as upstream, and
+  `NVIM_TUI_INPROC=0` selects the upstream two-process start (done, Q12; both modes pass the
+  host TUI test).
 - **Q-D2 libuv 1.52.1 with the same backend**: re-apply the 1.30 port (nothreads.c, the
   synchronous work queue, posix-poll, vfork spawn, amiga.c/amiga-os.c, tty once-per-readiness,
   dl.c), plus 1.52's new platform calls; `uv_random` from timer.device E-clock jitter is NOT a
   CSPRNG -> UV_ENOSYS unless ixemul grows a /dev/urandom (request R5).
-- **Q-D3 PUC Lua 5.1.5** (same as 0.4.4). COMPILE_LUA OFF first (sources embedded, compiled
-  at start); then a host "cross-dump" Lua 5.1 (ldump.c writing big-endian, 4-byte int/size_t,
-  8-byte double) so the embedded modules ship as m68k bytecode -- the start-up item.
+- **Q-D3 PUC Lua 5.1.5** (same as 0.4.4), with the embedded modules and the dist's runtime/lua
+  as m68k bytecode written by a host Lua whose ldump.c writes the Amiga's format
+  (amiga/lua-m68kdump; done, Q13). `-DCOMPILE_LUA=OFF` remains the fallback if the Amiga
+  rejects the bytecode.
 - **Q-D4 Tree-sitter parsers linked statically; dlopen served from a table**: libuv's AmigaOS
   dl.c gets a static library registry (`uv_amiga_static_lib(name, symbols)`); uv_dlopen of a
   path whose file name is registered (`vimdoc.so`) succeeds, uv_dlsym returns the linked
@@ -279,25 +292,63 @@ tcp_try_write_error (macOS answers ECONNRESET where the test wants EPIPE: host O
   tui_drive.py against it, then the m68k cross build; the host build also gives nlua0 and the
   runtime install.
 
-## Q checklist (0 of 17)
+## Q checklist (20 items; 14 done, 6 open -- the rig, or a later run)
 
-- [ ] Q1 host PUC Lua 5.1 (arm64) as generator Lua (`build/v012/host/lua51`)
-- [ ] Q2 libuv 1.52.1 backend ported (patches of 802f46c + 0c7e217), uvsmoke 1.52 on the host
-- [ ] Q3 libuv 1.52 own suite on the host, failures accounted for
-- [ ] Q4 host deps: luv 1.52, lpeg 1.1.0, unibilium 2.1.2, utf8proc, tree-sitter + parsers
-- [ ] Q5 host nvim 0.12.5 (PREFER_LUA, no-threads libuv) builds; --version, headless
-- [ ] Q6 host: tui_drive.py passes against 0.12.5 (two processes, upstream)
-- [ ] Q7 static parser registry in libuv dl.c + markers; `:help` highlights through vimdoc (host proof with a static build)
-- [ ] Q8 m68k deps cross-built (libuv 1.52, luv, lpeg, unibilium, utf8proc, tree-sitter, parsers)
-- [ ] Q9 m68k nvim 0.12.5 links (NLUA0_HOST_PRG, COMPILE_LUA OFF); size recorded, with and without c/vim parsers
-- [ ] Q10 dist tree for 0.12.5 (`make -f Makefile.v012 dist`)
-- [ ] Q11 rig: --version, headless, system(), TUI two-process (main session)
-- [ ] Q12 loopback single process (Q-D1), host tui_drive.py, then rig; memory and start time vs Q11
-- [ ] Q13 cross-dump Lua: embedded modules as m68k bytecode; start time vs Q12
-- [ ] Q14 user config packaging (section U) on the host
+- [x] Q1 host PUC Lua 5.1 (arm64) generator Lua `build/v012/host/lua51` -- 5feee43
+- [x] Q2 libuv 1.52.1 backend (hand port of 802f46c + 0c7e217, + 1.52's new calls) -- cc57ff5;
+      proof: host uvsmoke PASS; m68k libuv.a + uvsmoke link
+- [x] Q3 libuv 1.52 suite on the host: 356 of 449 pass, 30 skip, 63 fail, same causes as 1.30 -- cc57ff5
+- [x] Q4 deps for host and m68k from one rule set (Makefile.v012; host-deps) -- 5feee43;
+      m68k: no implicit declarations
+- [x] Q5 host nvim 0.12.5 (PREFER_LUA, no-threads libuv): --version, headless Lua -- 5feee43
+- [x] Q6 host tui_drive.py 8 of 8, two processes (upstream path) -- 5feee43
+- [x] Q7 static parser registry (libuv dl.c, os/static_dl.c, markers) -- 32fc825; proof (host,
+      UV_STATIC_DL): language.add('vimdoc') + parse; :help tree-sitter highlighted with --clean
+- [x] Q8 m68k deps cross-built incl. 7 parser libs (c 600 KB, vim 1.05 MB, markdown 340+338 KB,
+      vimdoc 166 KB, lua 55 KB, query 17 KB as archives) -- 5feee43
+- [x] Q9 m68k nvim 0.12.5 links -- 32fc825. **Size: 7,391,836 bytes unstripped, 7,199,740
+      stripped; .text 6.56 MB (5.65 MB without parsers), .data 90 KB, .bss 130 KB.**
+      (0.4.4: 3.0 MB stripped.)
+- [x] Q10 dist (`make -f Makefile.v012 dist`): build/v012/dist, 33 MB with runtime -- 4b41677
+- [ ] Q11 rig: `tools/nvim_rig.py --v012 --tui` (main session)
+- [x] Q12 one process: loopback channel, default on AmigaOS -- ef057de; proof: host tui_drive.py
+      9 of 9 in both modes incl. the process-model sentinel; host RSS 9.5 MB vs 16.2 MB.
+      Rig numbers (AvailMem) come from Q11.
+- [x] Q13 embedded Lua as m68k bytecode (lua51-m68kdump, COMPILE_LUA on) -- 4aef485; runtime/lua
+      precompiled in dist -- 80b11d8; proof (host): 128 files dump/load/re-dump identical,
+      vim.inspect runs the same from the dump. **Unconfirmed on the Amiga** (Q11).
+- [x] Q14 user config packaging (`tools/user-config.sh`) -- 4b41677, 80b11d8; host result below
 - [ ] Q15 rig: the friend's config starts, lualine + neo-tree + bufexplorer work
-- [ ] Q16 :terminal on PTY: in 0.12 (pty_proc_unix.c, same vfork spawn as D9)
+- [ ] Q16 :terminal on PTY: in 0.12 (pty_proc_unix.c port, 32fc825) on the rig
 - [ ] Q17 Q2 of the vtcon plan: 0.12.5's tui_spec through the engine
+- [x] Q18a compat for 0.12: atomics, clocks, pthread.h, F_DUPFD_CLOEXEC, wait, iconv stub,
+      endian.h, wctype on utf8proc, strtok_r, llabs -- 72ae68b, 369dc07, 5feee43
+- [ ] Q18 fs_event on AmigaOS (dos.library StartNotify; libuv's poller would wait on the notify
+      signal through ixemul's ix_select mask). Blocks: lualine's git-branch watcher inside a git
+      work tree (setup error, below), neo-tree's follow_current_file watcher, vim._watch (LSP).
+- [ ] Q19 GNU libiconv cross-built (iconv_open fails now; 'fileencoding' beyond UTF-8/Latin-1/UCS)
+
+## Q findings (2026-10-03, host)
+
+- **Two processes vs one**: host RSS after start (`--clean`): 16.2 MB for client + server, 9.5 MB
+  in one process. On the Amiga the gap is larger: the 7.2 MB binary is loaded twice and both
+  halves run `vim._init_packages`. One process is the AmigaOS default; `NVIM_TUI_INPROC=0`
+  brings back the upstream pair. `:restart` is not supported in-process.
+- **Threads**: none needed (confirmed by the host builds running on the no-threads libuv).
+- **PUC Lua 5.1**: supported; the whole 0.12.5 runtime/lua compiles under 5.1 (128 of 128).
+- **fs_event missing breaks lualine inside a git work tree**: lualine's branch component asks
+  `vim.uv.new_fs_event()`, gets nil (ENOSYS), falls back to `new_fs_poll()` and then calls it
+  with fs_event's arguments: "bad argument #2 to 'start' (number expected, got table)", which
+  aborts the friend's `lua << END` block (neo-tree is then not set up). Outside a git work tree
+  it does not happen. Root fix: Q18 (a real fs_event), not a lualine patch.
+- **The friend's config outside a git tree**: starts clean apart from vim-plug's "git not found"
+  notice (shown once; the friend's `silent! call plug#begin()` would hide it -- their config).
+  coq_nvim stays inert without python3 (no error at start).
+- **Long file names**: the plugins have 5 names over 30 characters (e.g.
+  nvim-web-devicons' icons_by_desktop_environment.lua, which it loads): OFS/FFS without long
+  names cannot hold them. Needs a volume with long names (FFS DOS\7 on 3.2, PFS3, SFS, or
+  the rig's host directory). Neovim's own runtime has one (dropped from dist, see D-9).
+- **Plugin data is 33 MB**, 26 MB of it coq.artifacts (snippets for coq): only useful with coq.
 
 ## U. A real user config: github.com/tomviljo/dotfiles (c36d479, 2025-11-28)
 
@@ -337,5 +388,21 @@ Plan:
 
 ## R (additions for 0.12)
 
-- **R5** `/dev/urandom` (or getentropy) in ixemul: libuv's uv_random and anything seeding from
-  it; until then UV_ENOSYS.
+- **R5** `/dev/urandom` (or getentropy) in ixemul: libuv's uv_random (reads /dev/urandom, fails
+  now; Neovim's srand falls back to the clock).
+- **R6** the rest of `amiga/compat/` added for 0.12 belongs in the SDK too: libatomic-style
+  `__atomic_*_N`/`__sync_*_N` (Disable/Enable), `clock_gettime`/`clock_getres`, a one-thread
+  `<pthread.h>`, `F_DUPFD_CLOEXEC` in fcntl, `WCONTINUED`, `<sched.h>`, `<endian.h>`,
+  `<dlfcn.h>`/`<ifaddrs.h>` declarations, getgrgid_r, strtok_r, llabs/atoll/lldiv, iconv.
+- **R7** fs_event support needs the poller to wait on an exec signal: ixemul's `ix_select`
+  takes an Amiga signal mask (library/select.c:69); libixcompat's `poll()` would need a
+  variant that passes one (or libuv's posix-poll calls ix_select itself).
+
+## V. Requests for vtcon (not done here)
+
+- **V1 Nerd Font glyphs in UP-Term**: a bitmap font plane for the Private Use Area code points
+  nvim-web-devicons, lualine and neo-tree draw (U+E000-U+F8FF, nf-md U+F0001-U+F1AF0; their
+  icon tables list the ones used), one cell wide as Neovim measures them, instead of the
+  replacement glyph.
+- **V2 (from the rig run)** vsh does not find a program by a Unix path (/VTC/nvim-test/...);
+  Amiga paths work.
