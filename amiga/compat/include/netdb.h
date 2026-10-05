@@ -1,7 +1,11 @@
-/* ixemul 48.2's <netdb.h> plus RFC 3493 getaddrinfo/getnameinfo, which it
- * lacks. netdb.c implements them on gethostbyname/gethostbyaddr and
+/* ixemul's <netdb.h> plus RFC 3493 getaddrinfo/getnameinfo where it lacks
+ * them. netdb.c implements them on gethostbyname/gethostbyaddr and
  * getservbyname/getservbyport: IPv4 only (the stack under ixemul is IPv4).
- * Values are 4.4BSD/NetBSD's. (Request R1: belongs in libixcompat.) */
+ * Values are 4.4BSD/NetBSD's. (Request R1: belongs in libixcompat.)
+ * ixemul 80.x's <netdb.h> declares the same interface (EAI_MAX tells it):
+ * then only the flags it leaves out are added, and gai_strerror is its
+ * char * (AMIGA_GAI_CONST). No library has these functions: netdb.c is
+ * what links either way. */
 #ifndef AMIGA_COMPAT_NETDB_H
 #define AMIGA_COMPAT_NETDB_H
 #pragma GCC system_header
@@ -10,6 +14,15 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
+#ifndef AMIGA_GAI_CONST
+#ifdef EAI_MAX
+#define AMIGA_GAI_CONST
+#else
+#define AMIGA_GAI_CONST const
+#endif
+#endif
+
+#ifndef EAI_MAX
 struct addrinfo {
 	int		 ai_flags;
 	int		 ai_family;
@@ -55,8 +68,20 @@ struct addrinfo {
 int	 getaddrinfo(const char *, const char *, const struct addrinfo *,
 	    struct addrinfo **);
 void	 freeaddrinfo(struct addrinfo *);
-const char *gai_strerror(int);
+AMIGA_GAI_CONST char *gai_strerror(int);
 int	 getnameinfo(const struct sockaddr *, socklen_t, char *, socklen_t,
 	    char *, socklen_t, int);
+
+#endif
+
+#ifndef AI_ADDRCONFIG
+#define AI_ADDRCONFIG	0x00000400
+#endif
+#ifndef AI_V4MAPPED
+#define AI_V4MAPPED	0x00000800
+#endif
+#ifndef AI_ALL
+#define AI_ALL		0x00000100
+#endif
 
 #endif

@@ -155,7 +155,7 @@ getaddrinfo(const char *node, const char *serv, const struct addrinfo *hints,
 	return 0;
 }
 
-const char *
+AMIGA_GAI_CONST char *
 gai_strerror(int e)
 {
 	switch (e) {
