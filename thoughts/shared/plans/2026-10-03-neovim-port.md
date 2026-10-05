@@ -543,3 +543,12 @@ it should FAIL them (predicted from the code; not run, the rig is the main sessi
    `nvim --headless -u NONE -i NONE -S btst_probe.vim` (after `SetEnv BTST_OUT RAM:btst.out`;
    without it the file is btst_probe.out in the current directory); pass = every line of
    RAM:btst.out starts with `ok` (0.4.4: 1 line, 0.12.5: 3 lines).
+
+### W rig results (2026-10-05, main session, default vtcon rig)
+- Rebuilt dists (fixed cc1): `tools/nvim_rig.py --tui` passed 8 of 8 (0.4.4), `--v012 --tui`
+  passed 9 of 9 (0.12.5).
+- tests/btst_probe.vim: 0.4.4 `ok ex_endtry`; 0.12.5 `ok ex_endtry`, `ok setlocal all&`,
+  `ok :copen` -- all pass on the rebuilt binaries.
+- FOUND on 0.12.5 (not 0.4.4): the probe's last line `empty($BTST_OUT)` stopped with
+  `E116: Invalid arguments for function empty` although `GetEnv BTST_OUT` gave RAM:btst.out; run
+  with a fixed path instead. An environment-variable expression problem in the 0.12 port, open.
