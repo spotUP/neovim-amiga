@@ -169,6 +169,9 @@ tcp_try_write_error (macOS answers ECONNRESET where the test wants EPIPE: host O
 ## Gotchas
 
 - The compiler defines `AMIGA`, `amiga`, `amigaos`, `MCH_AMIGA` as 1: guard with `__amigaos__`.
+- bebbo's cc1 before 2026-10-05 tested the wrong bit for `x & (1 << n)`, n >= 8, on an int in
+  memory under -m68020 (`btst #-16,(a0)`). Fixed in the installed cc1; what it broke here and
+  the rebuild: section W. Anything built before 2026-10-05 13:30 has it.
 - `size_t` is `unsigned int` under gcc 6 here; `off_t` 32 bits; `long` 32 bits; int64_t is long long.
 - macOS's vfork does not share memory with the child (probed), so the vfork spawn path is
   testable only on the Amiga; the host build keeps libuv's fork path.
@@ -478,3 +481,65 @@ Plan:
   (shell/vsh.c runner(), ~line 370). The AmigaOS Shell sets both. Request: SetProgramDir(the
   parent lock of the file resolve() loaded) around RunCommand, restored after. nvim no longer
   depends on it (libuv's program path now resolves a program name that holds a path first).
+
+## W. The btst miscompile in bebbo's gcc 6.5 cc1 (2026-10-05)
+
+The installed cc1 (`~/opt/amiga/libexec/gcc/m68k-amigaos/6.5.0b/cc1`) was replaced on
+2026-10-05 by one with gcc commit 34f82c7cf (cpython-amiga/build/gcc/src): m68k.md's
+`*tst_bftst_mem{,1,2}` emitted `btst #(7-P),<mem>` on the first byte, so a one-bit test at
+position P >= 8 of an int/short in memory (-m68020, bitfield insns) tested bit (7-P) & 7 of the
+first byte. The faulty compiler is kept as `cc1.orig-2026-10-05` next to it.
+
+**Measured** (every m68k compile of both targets, `-S` with the faulty cc1 via `-B` vs the
+fixed one, compared per function; commands from `make -n -B` and the shipped CMake target's
+compile_commands.json entries):
+- 0.4.4: 218 files (88 from the Makefile, 130 nvim.dir), 7,086 text-section functions;
+  **1 file, 3 functions differ**.
+- 0.12.5: 298 files (95 from Makefile.v012 incl. the 7 tree-sitter parsers, 203 nvim_bin.dir),
+  11,679 functions; **5 files, 7 functions differ**.
+Every differing line is a `btst #-N` becoming `btst #(7-P%8),(P/8 + offset)`; every one was a
+wrong bit at run time (the old code tested bit 24..31 of the int instead of bit 8..15, or bit
+30 instead of bit 6).
+
+| Target | Function (file:line) | Source test | Effect of the old code |
+|---|---|---|---|
+| both | ex_catch, ex_finally, ex_endtry (0.4.4 ex_eval.c:1303/1443/1582; 0.12.5 1327/1456/1569) | `cs_flags[idx] & CSF_TRY` (0x100) | Only levels below the innermost one: the test on the innermost level is a register test and was right. So only `:catch`/`:finally`/`:endtry` with an unclosed `:if`/`:while`/`:for` inside a `:try` that is itself nested: the search went to level 0, the outer conditionals were unwound too (an extra "E580: :endif without :if" follows). Error path in malformed scripts. |
+| 0.12.5 | uv_pipe (libuv src/unix/pipe.c:531, 535) | `read_flags & UV_NONBLOCK_PIPE` (0x40) | Never true: no pipe from uv_pipe/uv__make_pipe was made non-blocking. Neovim's job pipes were repaired by uv_pipe_open (it sets O_NONBLOCK itself); libuv's own async and signal wake-up pipes and luv's `vim.uv.pipe({nonblock=true})` stayed blocking. Latent: the loop reads them only after poll says readable; a blocking read could hang only when exactly a full buffer was pending. |
+| 0.12.5 | ml_delete_int (memline.c:2644) | `flags & ML_DEL_MESSAGE` (1) | "--No lines in buffer--" never shown after deleting the last line. Message only. |
+| 0.12.5 | get_option_default (option.c:460) | `opt_flags & OPT_LOCAL` (2) | `:setlocal all&` (and the statusline-error reset) copied the default into the local value of global-local options instead of unsetting it. |
+| 0.12.5 | win_init (window.c:1702) | `flags & WSP_NEWLOC` (0x100) | :copen/:lopen windows (quickfix.c) got a copy of the current window's location list. |
+
+No other function differs: the libraries of 0.4.4, libuv 1.30, Lua, luv, msgpack, unibilium,
+libtermkey, libvterm, lpeg, utf8proc, tree-sitter and the parsers were not affected.
+Not covered: bebbo's prebuilt libgcc/libnix multilibs (linked without -m68020, D-7: the 68000
+ones, which cannot contain the pattern) and the ixemul SDK's libixcompat.a (68000, measured
+unaffected in ixemul-vtcon's thoughts/shared/research/2026-10-05_gcc6-btst-miscompile.md).
+
+**Rebuilt** with the fixed cc1 (all m68k objects deleted, `make libs`, uvsmoke, lua51,
+`make sysroot`, `ninja -j4 nvim`, `make dist`; the same with Makefile.v012, whose `checks`
+passed 6 of 6). Object hashes before/after: 0.4.4 changed only ex_eval.c.obj; 0.12.5 changed
+pipe.o and the four nvim objects above, plus utf8proc.o, tree-sitter lib.o and the 7 parser.o,
+whose disassembly is identical to the faulty compiler's (the assembler is not byte-
+deterministic: two runs of the same compile differ in one byte).
+
+| Artifact | Before | After |
+|---|---|---|
+| build/m68k/dist/nvim/bin/nvim (0.4.4) | 3,012,464 | 3,012,468 |
+| build/m68k/dist/lua51, uvsmoke | 155,824 / 122,796 | identical bytes |
+| build/v012/dist/nvim/bin/nvim (0.12.5) | 7,206,676 | 7,206,724 |
+| build/v012/dist/uvsmoke (libuv 1.52, links pipe.o) | 141,116 | 141,116 (code changed) |
+| build/v012/dist/compat_probe | 27,724 | identical bytes |
+
+Host tests were not re-run: the host builds use the Mac's cc, which the change cannot reach.
+
+`tests/btst_probe.vim` checks the three behaviours a script can see (ex_endtry; 0.12: `:setlocal
+all&`, `:copen` without a location list). On both host builds: all ok. On the old m68k binaries
+it should FAIL them (predicted from the code; not run, the rig is the main session's).
+
+### Rig steps (main session)
+1. `python3 tools/nvim_rig.py --tui` and `python3 tools/nvim_rig.py --v012 --tui` (dists
+   rebuilt 13:38 / 13:43 on 2026-10-05): the 8 and 9 checks as before.
+2. Copy `tests/btst_probe.vim` next to each nvim on the rig and run
+   `nvim --headless -u NONE -i NONE -S btst_probe.vim` (after `SetEnv BTST_OUT RAM:btst.out`;
+   without it the file is btst_probe.out in the current directory); pass = every line of
+   RAM:btst.out starts with `ok` (0.4.4: 1 line, 0.12.5: 3 lines).
