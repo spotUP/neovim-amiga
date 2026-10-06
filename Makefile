@@ -5,6 +5,9 @@
 #   make            every m68k library (build/m68k/lib*.a)
 #   make host-test  libuv's backend built for this Mac (no threads,
 #                   posix-poll, the synchronous work queue) + its tests
+# The workspace directory that holds this repo and its siblings (the upterm
+# meta-repo creates it); the sibling defaults below hang off it.
+UPTERM_ROOT ?= $(abspath $(CURDIR)/..)
 AMIGA   ?= $(HOME)/opt/amiga
 AGCC    ?= $(AMIGA)/bin/m68k-amigaos-gcc
 AAR     ?= $(AMIGA)/bin/m68k-amigaos-ar
@@ -79,7 +82,7 @@ $(B)/uvsmoke: tests/uvsmoke.c $(B)/libuv.a $(B)/libamigacompat.a
 # out of the way. uv_spawn stays on fork() here: macOS's vfork() does not
 # share memory with the child (probed), so the vfork path (UV__SPAWN_VFORK)
 # is only testable on the Amiga (uvsmoke's spawn checks).
-IXCOMPAT ?= $(HOME)/Code/ixemul-vtcon/compat
+IXCOMPAT ?= $(UPTERM_ROOT)/ixemul-vtcon/compat
 HCFLAGS = -O1 -g -Wall -Wno-unused -Wno-deprecated-declarations \
           -DUV_NO_THREADS -DUV_POSIX_POLL -Dpoll=uvhost_select_poll \
           -D_DARWIN_UNLIMITED_SELECT=0 -I$(UV)/include -I$(UV)/src

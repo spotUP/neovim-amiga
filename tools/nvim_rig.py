@@ -24,7 +24,8 @@ stops nothing, so one run collects every answer.
 """
 import os, pathlib, shutil, struct, sys, time
 
-VTCON = pathlib.Path(os.environ.get('VTCON', pathlib.Path.home() / 'Code/vtcon'))
+UPTERM_ROOT = pathlib.Path(os.environ.get('UPTERM_ROOT') or pathlib.Path(__file__).resolve().parents[2])
+VTCON = pathlib.Path(os.environ.get('VTCON', UPTERM_ROOT / 'vtcon'))
 sys.path.insert(0, str(VTCON / 'tools/rig'))
 import ami, ixpty_rig, screen_rig          # noqa: E402  (vtcon's rig tools)
 import install_rig                         # noqa: E402

@@ -4,6 +4,9 @@
 #
 #   make -f Makefile.v012              m68k libraries (build/v012/m68k/lib*.a)
 #   make -f Makefile.v012 host-uvsmoke libuv 1.52 backend on this Mac + smoke test
+# The workspace directory that holds this repo and its siblings (the upterm
+# meta-repo creates it); the sibling defaults below hang off it.
+UPTERM_ROOT ?= $(abspath $(CURDIR)/..)
 AMIGA   ?= $(HOME)/opt/amiga
 AGCC    ?= $(AMIGA)/bin/m68k-amigaos-gcc
 AAR     ?= $(AMIGA)/bin/m68k-amigaos-ar
@@ -55,7 +58,7 @@ $(B)/uvsmoke: tests/uvsmoke.c $(B)/libuv.a $(COMPAT_LIB)
 	$(AGCC) $(ALDFLAGS) -o $@ $(B)/uvsmoke.o $(B)/libuv.a $(COMPAT_LIB) -lixcompat
 
 # ---- the same libuv on this Mac (UV_NO_THREADS, UV_POSIX_POLL) -------------
-IXCOMPAT ?= $(HOME)/Code/ixemul-vtcon/compat
+IXCOMPAT ?= $(UPTERM_ROOT)/ixemul-vtcon/compat
 # UV_STATIC_DL: the static uv_dlopen the Amiga uses (src/unix/dl.c)
 HCFLAGS = -O1 -g -Wall -Wno-unused -Wno-deprecated-declarations \
           -DUV_NO_THREADS -DUV_POSIX_POLL -DUV_STATIC_DL -Dpoll=uvhost_select_poll \
