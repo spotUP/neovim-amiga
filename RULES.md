@@ -34,3 +34,10 @@ rules (`~/.claude/CLAUDE.md`) apply; this file adds the project's. The ledger is
 | What goes onto the Amiga (nvim tree + runtime, uvsmoke, lua51) | `make dist` -> `build/m68k/dist/` |
 | On the rig (whoever drives it, never this repo's agent) | `python3 tools/nvim_rig.py [--tui]` |
 | Clean | `make clean` |
+
+## Cross-repo changes
+
+A change that crosses two or more UP-Term repos is one commit per repo, all with the
+same subject line, plus one `repos.lock` update in the `upterm` meta-repo (re-pin with
+`bin/upterm-bootstrap --update`) carrying that subject line too. Release step:
+`upterm-bootstrap --update`, then `make dist` in vtcon; run `bin/upterm-doctor` first.
