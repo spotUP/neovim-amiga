@@ -2,12 +2,12 @@
 """nvim_rig.py -- Neovim 0.4.4 (neovim-amiga) on the UP-Term FS-UAE rig.
 
 Run by whoever drives the rig (the vtcon main session), never by the port's
-agent. It reuses vtcon's rig tools read-only (~/Code/vtcon/tools/rig: ami,
+agent. It reuses vtcon's rig tools read-only (vtcon/tools/rig in the workspace: ami,
 install_rig.run, ixpty_rig.use_ixemul, screen_rig.typeline) and COPIES
 build/m68k/dist (nvim tree, uvsmoke, lua51) to VTC:nvim-test/ -- that is,
-into ~/Code/vtcon/build/rig/vtc/nvim-test.
+into vtcon/build/rig/vtc/nvim-test.
 
-Needs: the rig up (python3 tools/rig/rig.py start in ~/Code/vtcon), PTY:
+Needs: the rig up (python3 tools/rig/rig.py start in vtcon), PTY:
 mountable from VTC:ptymount, vsh as VTC:vsh, the kit NOT installed;
 `make dist` here first. Each step prints ok/FAIL and what it saw; a FAIL
 stops nothing, so one run collects every answer.
