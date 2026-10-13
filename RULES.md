@@ -31,6 +31,7 @@ rules (`~/.claude/CLAUDE.md`) apply; this file adds the project's. The ledger is
 | Build Neovim for m68k | `ninja -C build/m68k/nvim nvim` |
 | Host Neovim on the same no-threads libuv (proof build) | `make host-deps && tools/configure-nvim.sh --host && ninja -C build/host/nvim nvim` |
 | TUI driven through a pty (host build) | `python3 tests/tui_drive.py` |
+| nvim 0.12 TUI on a wrap-at-once terminal (host nvim through the vtcon engine, AMIGA personality; needs `make build/kit-terminfo/stamp` in vtcon) | `make -f Makefile.v012 test-tui-eager-wrap` |
 | What goes onto the Amiga (nvim tree + runtime, uvsmoke, lua51) | `make dist` -> `build/m68k/dist/` |
 | On the rig (whoever drives it, never this repo's agent) | `python3 tools/nvim_rig.py [--tui]` |
 | Clean | `make clean` |

@@ -96,6 +96,8 @@ struct TUIData {
   bool can_scroll;
   bool can_erase_chars;
   bool immediate_wrap_after_last_column;
+  // The terminfo says so (am, no xenl): the bottom right cell scrolls the screen.
+  bool wrap_scrolls_at_last_cell;
   bool bce;
   bool mouse_enabled;
   bool mouse_move_enabled;
@@ -448,8 +450,13 @@ static void terminfo_start(TUIData *tui)
     && TI_HAS(kTerm_insert_line)
     && TI_HAS(kTerm_parm_insert_line);
   tui->can_erase_chars = TI_HAS(kTerm_erase_chars);
+  // am without xenl: the terminal wraps the moment the last column is written
+  // (the Amiga console.device, vtcon-amiga). The terminfo says so, no need to
+  // know the name.
+  tui->wrap_scrolls_at_last_cell = tui->ti.am && !tui->ti.xenl;
   tui->immediate_wrap_after_last_column =
-    terminfo_is_term_family(term, "conemu")
+    tui->wrap_scrolls_at_last_cell
+    || terminfo_is_term_family(term, "conemu")
     || terminfo_is_term_family(term, "cygwin")
     || terminfo_is_term_family(term, "win32con")
     || terminfo_is_term_family(term, "interix");
@@ -948,6 +955,26 @@ static void final_column_wrap(TUIData *tui)
   }
 }
 
+/// Writing the bottom right cell of a terminal that wraps at once scrolls the
+/// screen. Turn autowrap off around it (DECAWM); the cursor then stays in the
+/// last column, so return it to column 0 where final_column_wrap() puts the grid.
+static bool guard_last_cell(TUIData *tui, int cells)
+{
+  UGrid *grid = &tui->grid;
+  if (tui->wrap_scrolls_at_last_cell && grid->row == tui->height - 1
+      && grid->col + cells == tui->width) {
+    out(tui, S_LEN("\x1b[?7l"));
+    return true;
+  }
+  return false;
+}
+
+static void unguard_last_cell(TUIData *tui)
+{
+  out(tui, S_LEN("\x1b[?7h"));
+  terminfo_out(tui, kTerm_carriage_return);
+}
+
 /// It is undocumented, but in the majority of terminals and terminal emulators
 /// printing at the right margin does not cause an automatic wrap until the
 /// next character is printed, holding the cursor in place until then.
@@ -959,7 +986,11 @@ static void print_cell(TUIData *tui, char *buf, sattr_T attr)
     final_column_wrap(tui);
   }
   update_attrs(tui, attr);
+  bool guard = guard_last_cell(tui, 1);
   out(tui, buf, strlen(buf));
+  if (guard) {
+    unguard_last_cell(tui);
+  }
   grid->col++;
   if (tui->immediate_wrap_after_last_column) {
     // Printing at the right margin immediately advances the cursor.
@@ -1098,6 +1129,7 @@ static void print_spaces(TUIData *tui, int width)
 {
   UGrid *grid = &tui->grid;
   size_t left = (size_t)width;
+  bool guard = guard_last_cell(tui, width);
 
   // spaces are not a sequence, we can squeeze whatever's left of the buffer
   while (true) {
@@ -1112,6 +1144,9 @@ static void print_spaces(TUIData *tui, int width)
     flush_buf(tui);
   }
 
+  if (guard) {
+    unguard_last_cell(tui);
+  }
   grid->col += width;
   if (tui->immediate_wrap_after_last_column) {
     // Printing at the right margin immediately advances the cursor.
