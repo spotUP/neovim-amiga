@@ -25,8 +25,13 @@ foreach(_p ${AMIGA_TS_PARSERS})
   string(APPEND _ts_libs " -ltsparser_${_p}")
 endforeach()
 
+# -fno-ivopts: bebbo's gcc 6.5 -O3 induction-variable pass miscompiles a
+# `for (p = s; isid(*p); p++) {}` scan once it is inlined: the loop leaves p one
+# past the first non-matching character (eval.c get_env_len inlined into
+# eval7: "$NAME" took the character after NAME with it, so stridx(a, $VAR)
+# was E116 and "$HOME" alone E488; tests/nvim_env_expr_rig.py).
 set(CMAKE_C_FLAGS_INIT
-  "-mcrt=ixemul -m68020 -fno-strict-aliasing -DUNIX -I${NA_ROOT}/amiga/compat/include${_ts_defs}")
+  "-mcrt=ixemul -m68020 -fno-strict-aliasing -fno-ivopts -DUNIX -I${NA_ROOT}/amiga/compat/include${_ts_defs}")
 
 # Link without the C flags: -m68020 at link time makes the driver pick
 # libnix's crt0 (the ixemul SDK has no libm020 multilib); the objects are
