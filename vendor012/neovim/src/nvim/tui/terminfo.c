@@ -134,6 +134,8 @@ bool terminfo_from_database(TerminfoEntry *ti, char *termname, Arena *arena)
   }
 
   ti->bce = unibi_get_bool(ut, unibi_back_color_erase);
+  ti->am = unibi_get_bool(ut, unibi_auto_right_margin);
+  ti->xenl = unibi_get_bool(ut, unibi_eat_newline_glitch);
   ti->max_colors = unibi_get_num(ut, unibi_max_colors);
   ti->lines = unibi_get_num(ut, unibi_lines);
   ti->columns = unibi_get_num(ut, unibi_columns);
@@ -240,6 +242,8 @@ String terminfo_info_msg(const TerminfoEntry *ti, const char *termname, bool fro
 
   kv_printf(data, "Boolean capabilities:\n");
   kv_printf(data, "  back_color_erase: %s\n", fmt(ti->bce));
+  kv_printf(data, "  auto_right_margin: %s\n", fmt(ti->am));
+  kv_printf(data, "  eat_newline_glitch: %s\n", fmt(ti->xenl));
   kv_printf(data, "  truecolor ('Tc' or 'RGB'): %s\n", fmt(ti->has_Tc_or_RGB));
   kv_printf(data, "  extended underline ('Su'): %s\n", fmt(ti->Su));
   kv_printf(data, "\n");

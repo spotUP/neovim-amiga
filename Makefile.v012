@@ -23,7 +23,7 @@ COMPAT_HDRS = $(wildcard amiga/compat/include/*.h amiga/compat/include/*/*.h)
 # libamigacompat is the 0.4.4 Makefile's (one library for both targets)
 COMPAT_LIB  = build/m68k/libamigacompat.a
 
-.PHONY: all libs host-uvsmoke checks clean
+.PHONY: all libs host-uvsmoke checks test-tui-eager-wrap clean
 all: libs
 libs: $(B)/libamigawide.a $(B)/libuv.a $(B)/liblua.a $(B)/libluv.a $(B)/liblpeg.a \
       $(B)/libunibilium.a $(B)/libutf8proc.a $(B)/libtree-sitter.a $(B)/parsers
@@ -94,6 +94,12 @@ $(H)/progpath_check: tests/progpath_check.c $(UV)/src/unix/amiga-os.c $(wildcard
 checks: $(H)/progpath_check
 	$(H)/progpath_check
 	$(AGCC) $(ACFLAGS) -I$(LUA) -fsyntax-only tests/luaint_check.c
+
+# nvim's TUI on a terminal that wraps at once (am, no xenl): the host nvim
+# through the vtcon engine in the AMIGA personality. Needs the vtcon checkout
+# beside this one (VTCON=) with `make build/kit-terminfo/stamp` run there.
+test-tui-eager-wrap:
+	python3 tests/tui_eager_wrap.py $(CURDIR)/build/v012/host/nvim/bin/nvim
 
 clean:
 	rm -rf build/v012
