@@ -2358,6 +2358,24 @@ int append_path(char *path, const char *to_append, size_t max_len)
   return OK;
 }
 
+#ifdef __amigaos__
+/// Length of the "Volume:" prefix (colon included) of an AmigaDOS name, 0 when
+/// "fname" has none: no '/' or ':' before the first ':', a name before it, and
+/// not "scheme://".
+static size_t amiga_volume_len(const char *fname)
+  FUNC_ATTR_NONNULL_ALL FUNC_ATTR_PURE
+{
+  const char *p = fname;
+  while (*p != NUL && *p != ':' && *p != '/') {
+    p++;
+  }
+  if (*p != ':' || p == fname || (p[1] == '/' && p[2] == '/')) {
+    return 0;
+  }
+  return (size_t)(p - fname) + 1;
+}
+#endif
+
 /// Used by `vim_FullName` and `fix_fname` to expand a filename to its full path.
 ///
 /// @param  fname  Filename to expand.
@@ -2371,6 +2389,25 @@ static int path_to_absolute(const char *fname, char *buf, size_t len, int force)
 {
   const char *p;
   *buf = NUL;
+
+#ifdef __amigaos__
+  // An AmigaDOS name "Volume:path" ("RAM:b4.txt", "T:x", "UP-Term:nvim") is not
+  // relative to the current directory. ixemul's libc takes it as "/Volume/path"
+  // (the form its getcwd uses: "/BOOTX"), and a ':' inside a name is a volume
+  // separator for it, so "/BOOTX/RAM:b4.txt" can be neither opened nor made
+  // into a swap file name.
+  size_t vol = amiga_volume_len(fname);
+  if (vol > 0) {
+    char *posix = xmalloc(strlen(fname) + 2);
+    posix[0] = '/';
+    memcpy(posix + 1, fname, vol - 1);
+    posix[vol] = '/';
+    strcpy(posix + vol + 1, fname + vol);
+    int rv = path_to_absolute(posix, buf, len, force);
+    xfree(posix);
+    return rv;
+  }
+#endif
 
   char *relative_directory = xmalloc(len);
   const char *end_of_path = fname;
