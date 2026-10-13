@@ -1,12 +1,10 @@
-/* ixemul 48.2's <stdlib.h> plus mkdtemp and the C99 long long functions
- * (compat/posix.c). */
+/* ixemul's <stdlib.h> plus mkdtemp and atoll (compat/posix.c). lldiv_t, lldiv and
+ * llabs are the SDK's since libixcompat took them (ixemul-vtcon c15c438): its
+ * <stdlib.h> declares them, so redeclaring lldiv_t here is a conflicting type. */
 #ifndef AMIGA_COMPAT_STDLIB_H
 #define AMIGA_COMPAT_STDLIB_H
 #pragma GCC system_header
 #include_next <stdlib.h>
 char	*mkdtemp(char *);
-long long	llabs(long long);
 long long	atoll(const char *);
-typedef struct { long long quot, rem; } lldiv_t;
-lldiv_t	lldiv(long long, long long);
 #endif

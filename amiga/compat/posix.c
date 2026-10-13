@@ -453,23 +453,7 @@ strtok_r(char *s, const char *delim, char **save)
 }
 
 long long
-llabs(long long n)
-{
-	return n < 0 ? -n : n;
-}
-
-long long
 atoll(const char *s)
 {
 	return strtoq(s, NULL, 10);
-}
-
-lldiv_t
-lldiv(long long n, long long d)
-{
-	lldiv_t r;
-
-	r.quot = n / d;
-	r.rem = n % d;
-	return r;
 }
