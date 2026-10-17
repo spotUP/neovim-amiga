@@ -23,6 +23,9 @@ typedef u_int16_t	in_port_t;
 typedef u_int32_t	in_addr_t;
 #endif
 
+/* the ixemul-vtcon SDK (16 Oct 2026, request R1) now has these two structs */
+#ifndef _IXEMUL_IN6_DEFINED
+#define _IXEMUL_IN6_DEFINED
 struct in6_addr {
 	union {
 		u_int8_t	__u6_addr8[16];
@@ -40,6 +43,7 @@ struct sockaddr_in6 {
 	struct in6_addr	sin6_addr;
 	u_int32_t	sin6_scope_id;
 };
+#endif /* _IXEMUL_IN6_DEFINED */
 
 struct ipv6_mreq {
 	struct in6_addr	ipv6mr_multiaddr;
